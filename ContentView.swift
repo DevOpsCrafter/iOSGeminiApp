@@ -42,6 +42,12 @@ struct ContentView: View {
             }
         }
         .padding()
+        // Correct placement of .sheet modifier
+        .sheet(isPresented: $showingImagePicker) {
+            PhotoPicker(image: $selectedImage,
+                        isPresented: $showingImagePicker,
+                        statusMessage: $statusMessage)
+        }
     }
 
     // MARK: – Core Flow
@@ -138,11 +144,6 @@ struct iOSGeminiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .sheet(isPresented: $showingImagePicker) {
-                    PhotoPicker(image: $selectedImage,
-                                isPresented: $showingImagePicker,
-                                statusMessage: $statusMessage)
-                }
         }
     }
 }
