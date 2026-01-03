@@ -1,0 +1,32 @@
+name: Daily Astroboli Post
+
+on:
+  schedule:
+    # Runs at 10:00 UTC every day (Adjust as needed)
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    # Allows manual triggering from GitHub UI
+
+jobs:
+  run-daily-bot:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Daily Bot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+        run: python daily_bot.py
