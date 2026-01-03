@@ -9,22 +9,18 @@ This repository contains two projects:
 
 To get the daily bot running, you need to configure **GitHub Secrets**.
 
-### Step 1: Get Your API Keys (Direct Links)
+### Step 1: Get Your API Keys
 
 #### 1. Gemini API Key (`GEMINI_API_KEY`)
-*   **Link**: [**Google AI Studio - Get API Key**](https://aistudio.google.com/app/apikey)
-*   **Action**: Click "Create API Key" and copy the string.
+*   **Primary Link**: [**Google AI Studio**](https://aistudio.google.com/)
+    *   *Instructions*: Sign in, then look for **"Get API key"** in the top-left sidebar.
 
 #### 2. Instagram/Meta Setup (`IG_ACCESS_TOKEN` & `IG_USER_ID`)
-*   **Link 1 - Create App**: [**Meta Developers - My Apps**](https://developers.facebook.com/apps/)
-    *   Click "Create App" > **Business** > name it "Astroboli".
-    *   Add Product > **Instagram Graph API** > "Set Up".
-*   **Link 2 - Get Token & ID**: [**Graph API Explorer**](https://developers.facebook.com/tools/explorer/)
-    *   **Meta App**: Select "Astroboli".
-    *   **User or Page**: Select "Get User Access Token".
-    *   **Permissions**: Add `instagram_basic` and `instagram_content_publish`.
-    *   **Generate Access Token**: Click "Generate Access Token". Use this as your `IG_ACCESS_TOKEN` (Note: This is short-lived; for a permanent bot, you enter this token into the [Access Token Debugger](https://developers.facebook.com/tools/debug/accesstoken/) to extending it).
-    *   **Get User ID**: In the top bar, type `me/accounts` and click Submit. Copy the `id` of your Instagram account.
+*   **Step A: Create App**: [**Meta Developers Dashboard**](https://developers.facebook.com/apps/)
+    *   *Instructions*: Create App > Business > Add "Instagram Graph API".
+*   **Step B: Get Tokens**: [**Graph API Explorer Tool**](https://developers.facebook.com/tools/explorer/)
+    *   *Instructions*: Select your App. Get User Access Token with `instagram_content_publish`.
+
 
 
 ### Step 2: Add Secrets to GitHub
