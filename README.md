@@ -15,11 +15,17 @@ To get the daily bot running, you need to configure **GitHub Secrets**.
 *   **Primary Link**: [**Google AI Studio**](https://aistudio.google.com/)
     *   *Instructions*: Sign in, then look for **"Get API key"** in the top-left sidebar.
 
-#### 2. Instagram/Meta Setup (`IG_ACCESS_TOKEN` & `IG_USER_ID`)
-*   **Step A: Create App**: [**Meta Developers Dashboard**](https://developers.facebook.com/apps/)
-    *   *Instructions*: Create App > Business > Add "Instagram Graph API".
-*   **Step B: Get Tokens**: [**Graph API Explorer Tool**](https://developers.facebook.com/tools/explorer/)
-    *   *Instructions*: Select your App. Get User Access Token with `instagram_content_publish`.
+#### 2. Instagram/Meta Setup (Using your Ads/Business Account)
+Since you already have a Meta Ads account, you have a Business Portfolio.
+
+*   **Step A: Create App**: [**Meta Developers - My Apps**](https://developers.facebook.com/apps/)
+    *   Click **Create App** > Select **"Business"** (or "Other" > "Business").
+    *   **Important**: When asked, select your **existing Business Portfolio** (Ads Account) to link them.
+    *   Add **Instagram Graph API** product > "Set Up".
+*   **Step B: Get Tokens**: [**Graph API Explorer**](https://developers.facebook.com/tools/explorer/)
+    *   Select your new App.
+    *   Get User Access Token.
+    *   Add Permission: `instagram_content_publish`.
 
 
 
