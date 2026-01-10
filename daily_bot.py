@@ -22,13 +22,14 @@ def generate_astro_content():
     """Generates a prompt and caption using Gemini."""
     print("✨ Connecting to Gemini...")
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-2.5-flash')
+
 
     prompt = """
     You are 'Astroboli', a mystical AI astrologer. 
     1. Generate a visually descriptive image prompt for today's daily horoscope or cosmic energy. It should be mystical, ethereal, and artistic. 
     2. Write an engaging Instagram caption for this image.
-    3. Provide 30 relevant hashtags.
+    3. Provide 5 relevant hashtags.
     
     Output format:
     IMAGE_PROMPT: [The image prompt]
