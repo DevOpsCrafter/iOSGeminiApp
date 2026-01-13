@@ -18,3 +18,5 @@ fastlane/screenshots/**
 # Misc
 *.swp
 .DS_Store
+# Local secrets
+secrets.env

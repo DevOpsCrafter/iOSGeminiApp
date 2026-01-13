@@ -120,6 +120,13 @@ Since Meta Developer access has restrictions, we use email delivery instead.
 - Check GitHub Actions logs
 - Verify all 3 secrets are set in GitHub → Settings → Secrets
 
+### Security — If a secret was accidentally committed
+- **Rotate credentials immediately.** Revoke the exposed Gemini API key and any Gmail App Passwords and create replacements.
+- **Remove secrets from repository history.** Use tools like [BFG Repo-Cleaner](https://rtyley.github.io/bfg-repo-cleaner/) or `git filter-repo` to purge secrets from history, then force-push the cleaned repo (coordinate with your team).
+- **Enable secret scanning & pre-commit checks.** This repo includes a `gitleaks` workflow that will fail CI on secrets; consider adding `detect-secrets` or `pre-commit` hooks locally.
+
+If you want, I can: add CI secret scanning (already added), prepare a sanitized commit removing the file(s), and provide exact BFG/git-filter-repo commands tailored to this repo.
+
 ### Want to Change Schedule?
 Edit `.github/workflows/daily_post.yml`:
 ```yaml
