@@ -20,6 +20,52 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 YOUR_EMAIL = os.environ.get("YOUR_EMAIL")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")  # Gmail App Password
 
+def _extract_json_from_text(text: str) -> dict | None:
+    """Attempt to extract and parse a JSON object from free-form text.
+    This handles cases where the model wraps JSON in markdown code fences (```json ... ```)
+    or returns additional commentary around the JSON.
+    Returns the parsed dict or None if parsing fails.
+    """
+    # Try a direct parse first
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # Remove common markdown fences and try again
+    import re
+    # Find a JSON object inside text by locating the first '{' and last '}'
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        candidate = text[start:end+1]
+        try:
+            return json.loads(candidate)
+        except Exception:
+            # Sometimes there are trailing or leading backticks to strip
+            candidate = re.sub(r'```.*?```', '', text, flags=re.S).strip()
+            start = candidate.find('{')
+            end = candidate.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                try:
+                    return json.loads(candidate[start:end+1])
+                except Exception:
+                    return None
+    return None
+
+
+def _clean_image_prompt(p: str) -> str:
+    # Remove any accidental CTAs or Visit links from the image prompt
+    import re
+    p = re.sub(r'Visit\s+https?://\S+', '', p)
+    p = p.replace('```json', '').replace('```', '')
+    p = p.replace('\n', ' ').strip()
+    # Collapse multiple spaces
+    p = re.sub(r'\s+', ' ', p)
+    # Limit length to a safe size for image API
+    return p[:2000]
+
+
 def generate_astro_content():
     """Generates a prompt and caption using Gemini."""
     print("Connecting to Gemini...")
@@ -55,11 +101,13 @@ def generate_astro_content():
 
     # Prefer JSON output from the model; fall back to original heuristics if needed
     try:
-        data = json.loads(text)
+        data = _extract_json_from_text(text) or {}
+        if not data:
+            raise ValueError("No JSON found in model output")
         image_prompt = data.get("image_prompt") or data.get("IMAGE_PROMPT") or ""
         caption_part = data.get("caption") or data.get("CAPTION") or ""
         hashtags_list = data.get("hashtags") or data.get("HASHTAGS") or []
-        # Normalize: ensure we have a list, strip whitespace, ensure hashtags start with '#'
+        # Normalize hashtags
         if isinstance(hashtags_list, str):
             hashtags_list = [h.strip() for h in hashtags_list.replace(',', ' ').split() if h.strip()]
         normalized = []
@@ -72,14 +120,11 @@ def generate_astro_content():
             normalized.append(h)
         # Take top 5. If fewer than 5, pad with related tags; ensure #AstroboliAI is present.
         top5 = normalized[:5]
-        if '#Astroboliai' in [t.lower() for t in top5]:
-            # preserve case if present
+        if '#astroboliai' in [t.lower() for t in top5]:
             pass
         else:
-            # ensure brand present as highest-priority tag
             top5 = ['#AstroboliAI'] + [t for t in top5 if t.lower() != '#astroboliai']
             top5 = top5[:5]
-        # If still fewer than 5, append common tags
         defaults = ['#astrology', '#numerology', '#horoscope', '#zodiac']
         i = 0
         while len(top5) < 5 and i < len(defaults):
@@ -88,7 +133,9 @@ def generate_astro_content():
                 top5.append(cand)
             i += 1
         hashtags_str = " ".join(top5)
-        # Ensure brand CTA
+        # Clean image prompt from CTA / code fences
+        image_prompt = _clean_image_prompt(image_prompt)
+        # Ensure brand CTA in caption
         if "astroboli" not in caption_part.lower():
             caption_part = f"{caption_part.strip()} — Visit https://astroboli.com"
         full_caption = f"{caption_part}\n\n{hashtags_str}".strip()
@@ -96,6 +143,10 @@ def generate_astro_content():
     except Exception:
         # Fallback to older parsing for non-JSON responses
         try:
+            # Try to extract a possible JSON inside text even if not pure JSON
+            data = _extract_json_from_text(text)
+            if data:
+                return generate_astro_content_from_data(data)
             image_prompt = text.split("IMAGE_PROMPT:")[1].split("CAPTION:")[0].strip()
             caption_part = text.split("CAPTION:")[1].split("HASHTAGS:")[0].strip()
             hashtags = text.split("HASHTAGS:")[1].strip()
@@ -121,9 +172,10 @@ def generate_astro_content():
             if "astroboli" not in caption_part.lower():
                 caption_part = f"{caption_part}\n\nVisit https://astroboli.com"
             full_caption = f"{caption_part}\n\n{' '.join(top5)}"
+            image_prompt = _clean_image_prompt(image_prompt)
             return image_prompt, full_caption, top5
         except Exception:
-            print("⚠️ Gemini output format unexpected. Using raw text.")
+            print("Gemini output format unexpected. Using raw text.")
             raw = text.strip()
             # Make a brief caption + default hashtag
             short_caption = (raw[:240] + "...") if len(raw) > 240 else raw
