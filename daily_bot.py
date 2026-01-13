@@ -4,6 +4,8 @@ import requests
 import google.generativeai as genai
 import random
 import urllib.parse
+import json
+import argparse
 from dotenv import load_dotenv
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -20,40 +22,120 @@ EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")  # Gmail App Password
 
 def generate_astro_content():
     """Generates a prompt and caption using Gemini."""
-    print("✨ Connecting to Gemini...")
+    print("Connecting to Gemini...")
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-2.5-flash')
 
 
     prompt = """
-    You are 'Astroboli', a mystical AI astrologer. 
-    1. Generate a visually descriptive image prompt for today's daily horoscope or cosmic energy. It should be mystical, ethereal, and artistic. 
-    2. Write an engaging Instagram caption for this image.
-    3. Provide 5 relevant hashtags.
-    
-    Output format:
-    IMAGE_PROMPT: [The image prompt]
-    CAPTION: [The caption]
-    HASHTAGS: [The hashtags]
+    You are 'Astroboli AI' — a creative branding studio and mystic astrologer for astroboli.com.
+
+    For today's daily horoscope or cosmic energy, produce a single JSON object with the following keys:
+    - "image_prompt": a highly-detailed image prompt to feed into an image generator. Include necessary style tokens, composition, color palette, mood, lighting, texture, and technical notes (important: `aspect_ratio:1:1`, `resolution:1080x1080`, `no readable text`, `no watermark`). Include a subtle area for a brand badge (no readable logo text on the image). Use style words: ethereal, cosmic, glowing, voluminous fog, gold & indigo palette, intricate star textures.
+    - "caption": an Instagram-ready caption (<=300 chars). It must mention **Astroboli AI** at least once and include a short CTA such as "Visit astroboli.com" or "Read more on astroboli.com" and 1-2 emojis.
+    - "hashtags": an **array of exactly 5** highly relevant hashtags (include `#AstroboliAI` and order from most to least relevant).
+    - "alt_text": a short accessible image description (1-2 sentences) suitable for Instagram alt text.
+
+    Requirements:
+    - Return *only* valid JSON (no markdown, no explanation, no extra text).
+    - Hashtags must be an array of length exactly 5; include `#AstroboliAI` as one of them.
+    - Keep tone mystical, shareable, and concise.
+
+    Example output:
+    {
+      "image_prompt": "...",
+      "caption": "...",
+      "hashtags": ["#AstroboliAI","#astrology","#numerology","#horoscope","#zodiac"],
+      "alt_text": "..."
+    }
     """
-    
+
     response = model.generate_content(prompt)
     text = response.text
-    
-    # Simple parsing
+
+    # Prefer JSON output from the model; fall back to original heuristics if needed
     try:
-        image_prompt = text.split("IMAGE_PROMPT:")[1].split("CAPTION:")[0].strip()
-        caption_part = text.split("CAPTION:")[1].split("HASHTAGS:")[0].strip()
-        hashtags = text.split("HASHTAGS:")[1].strip()
-        full_caption = f"{caption_part}\n\n{hashtags}"
-        return image_prompt, full_caption
-    except IndexError:
-        print("⚠️ Gemini output format unexpected. Using raw text.")
-        return text[:200], text
+        data = json.loads(text)
+        image_prompt = data.get("image_prompt") or data.get("IMAGE_PROMPT") or ""
+        caption_part = data.get("caption") or data.get("CAPTION") or ""
+        hashtags_list = data.get("hashtags") or data.get("HASHTAGS") or []
+        # Normalize: ensure we have a list, strip whitespace, ensure hashtags start with '#'
+        if isinstance(hashtags_list, str):
+            hashtags_list = [h.strip() for h in hashtags_list.replace(',', ' ').split() if h.strip()]
+        normalized = []
+        for h in hashtags_list:
+            h = h.strip()
+            if not h:
+                continue
+            if not h.startswith('#'):
+                h = f"#{h}"
+            normalized.append(h)
+        # Take top 5. If fewer than 5, pad with related tags; ensure #AstroboliAI is present.
+        top5 = normalized[:5]
+        if '#Astroboliai' in [t.lower() for t in top5]:
+            # preserve case if present
+            pass
+        else:
+            # ensure brand present as highest-priority tag
+            top5 = ['#AstroboliAI'] + [t for t in top5 if t.lower() != '#astroboliai']
+            top5 = top5[:5]
+        # If still fewer than 5, append common tags
+        defaults = ['#astrology', '#numerology', '#horoscope', '#zodiac']
+        i = 0
+        while len(top5) < 5 and i < len(defaults):
+            cand = defaults[i]
+            if cand not in top5:
+                top5.append(cand)
+            i += 1
+        hashtags_str = " ".join(top5)
+        # Ensure brand CTA
+        if "astroboli" not in caption_part.lower():
+            caption_part = f"{caption_part.strip()} — Visit https://astroboli.com"
+        full_caption = f"{caption_part}\n\n{hashtags_str}".strip()
+        return image_prompt, full_caption, {'hashtags': top5}
+    except Exception:
+        # Fallback to older parsing for non-JSON responses
+        try:
+            image_prompt = text.split("IMAGE_PROMPT:")[1].split("CAPTION:")[0].strip()
+            caption_part = text.split("CAPTION:")[1].split("HASHTAGS:")[0].strip()
+            hashtags = text.split("HASHTAGS:")[1].strip()
+            # Normalize hashtags into list
+            tags = [h.strip() for h in hashtags.replace(',', ' ').split() if h.strip()]
+            normalized = []
+            for h in tags:
+                if not h.startswith('#'):
+                    h = f"#{h}"
+                normalized.append(h)
+            top5 = normalized[:5]
+            if '#AstroboliAI' not in [t for t in top5]:
+                top5 = ['#AstroboliAI'] + [t for t in top5 if t.lower() != '#astroboliai']
+                top5 = top5[:5]
+            defaults = ['#astrology', '#numerology', '#horoscope', '#zodiac']
+            i = 0
+            while len(top5) < 5 and i < len(defaults):
+                cand = defaults[i]
+                if cand not in top5:
+                    top5.append(cand)
+                i += 1
+            # Ensure brand CTA
+            if "astroboli" not in caption_part.lower():
+                caption_part = f"{caption_part}\n\nVisit https://astroboli.com"
+            full_caption = f"{caption_part}\n\n{' '.join(top5)}"
+            return image_prompt, full_caption, top5
+        except Exception:
+            print("⚠️ Gemini output format unexpected. Using raw text.")
+            raw = text.strip()
+            # Make a brief caption + default hashtag
+            short_caption = (raw[:240] + "...") if len(raw) > 240 else raw
+            if "astroboli" not in short_caption.lower():
+                short_caption = f"{short_caption}\n\nVisit https://astroboli.com"
+            defaults = ['#AstroboliAI', '#astrology', '#numerology', '#horoscope', '#zodiac']
+            return short_caption[:800], f"{short_caption}\n\n{' '.join(defaults)}", defaults
+
 
 def get_image_url(prompt):
     """Generates an image URL from Pollinations.ai."""
-    print(f"🎨 Generating image for: {prompt[:50]}...")
+    print(f"Generating image for: {prompt[:50]}...")
     encoded_prompt = urllib.parse.quote(prompt)
     seed = random.randint(1, 1000000)
     image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1080&seed={seed}&nologo=true&model=flux"
@@ -61,7 +143,7 @@ def get_image_url(prompt):
 
 def download_image(url):
     """Download image from URL and return bytes."""
-    print(f"⬇️ Downloading image...")
+    print("Downloading image...")
     response = requests.get(url)
     if response.status_code == 200:
         return response.content
@@ -70,13 +152,13 @@ def download_image(url):
 
 def send_email(image_data, caption):
     """Sends email with image and caption."""
-    print("📧 Sending email...")
+    print("Sending email...")
     
     # Create message
     msg = MIMEMultipart()
     msg['From'] = YOUR_EMAIL
     msg['To'] = YOUR_EMAIL
-    msg['Subject'] = '🌟 Your Daily Astroboli Post is Ready!'
+    msg['Subject'] = 'Your Daily Astroboli Post is Ready!'
     
     # Email body
     body = f"""
@@ -121,22 +203,52 @@ def send_email(image_data, caption):
         server.login(YOUR_EMAIL, EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
-        print("✅ Email sent successfully!")
+        print("Email sent successfully!")
     except Exception as e:
         raise Exception(f"Failed to send email: {e}")
 
 def main():
-    if not all([GEMINI_API_KEY, YOUR_EMAIL, EMAIL_PASSWORD]):
-        print("❌ Error: Missing credentials.")
-        print("Please fill out the '.env' file with your keys.")
-        print("Required: GEMINI_API_KEY, YOUR_EMAIL, EMAIL_PASSWORD")
-        exit(1)
+    parser = argparse.ArgumentParser(description='Astroboli daily bot')
+    parser.add_argument('--dry-run', action='store_true', help='Only generate content and validate hashtags (do not download image or send email)')
+    parser.add_argument('--mock', action='store_true', help='Use a mock response instead of calling Gemini (for testing without API key)')
+    args = parser.parse_args()
+
+    # If not mocking, ensure credentials are set
+    if not args.mock:
+        if not all([GEMINI_API_KEY, YOUR_EMAIL, EMAIL_PASSWORD]):
+            print("ERROR: Missing credentials.")
+            print("Please fill out the '.env' file with your keys.")
+            print("Required: GEMINI_API_KEY, YOUR_EMAIL, EMAIL_PASSWORD")
+            exit(1)
 
     try:
         # 1. Generate Content
-        prompt, caption = generate_astro_content()
-        print(f"📝 Prompt: {prompt}")
-        
+        if args.mock:
+            # Use deterministic mock data for reliable tests
+            def generate_mock_content():
+                image_prompt = "Ethereal cosmic scene, gold and indigo palette, glowing stars, soft volumetric fog, intricate star textures, 1:1 aspect, 1080x1080, no watermark"
+                caption = "Astroboli AI - Today's cosmic energy: embrace small shifts. — Visit https://astroboli.com\n\n#AstroboliAI #astrology #numerology #horoscope #zodiac"
+                hashtags = ['#AstroboliAI', '#astrology', '#numerology', '#horoscope', '#zodiac']
+                return image_prompt, caption, {'hashtags': hashtags}
+            prompt, caption, meta = generate_mock_content()
+        else:
+            prompt, caption, meta = generate_astro_content()
+        print(f"Prompt: {prompt}")
+        print(f"Caption:\n{caption}")
+
+        # If dry-run, validate hashtags and exit
+        if args.dry_run:
+            tags = meta.get('hashtags') if isinstance(meta, dict) else []
+            print(f"Hashtags generated: {tags}")
+            if not isinstance(tags, list) or len(tags) != 5:
+                print("Validation failed: hashtags must be a list of exactly 5 items.")
+                exit(2)
+            if not any(t.lower() == '#astroboliai' for t in tags):
+                print("Validation failed: #AstroboliAI must be present in hashtags.")
+                exit(3)
+            print("Dry-run validation passed: 5 hashtags (including #AstroboliAI) found.")
+            exit(0)
+
         # 2. Get Image URL
         image_url = get_image_url(prompt)
         print(f"🖼️ Image URL: {image_url}")
@@ -147,10 +259,10 @@ def main():
         # 4. Send Email
         send_email(image_data, caption)
         
-        print("\n✨ Done! Check your email for today's post.")
+        print("\nDone! Check your email for today's post.")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
         exit(1)
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# Astroboli - Automated AI Instagram Bot 🌟
+# Astroboli - Automated AI Instagram Bot
 
 Generate mystical daily Instagram content automatically using AI.
 
