@@ -68,32 +68,61 @@ def _clean_image_prompt(p: str) -> str:
 
 def generate_astro_content():
     """Generates a prompt and caption using Gemini."""
-    print("Connecting to Gemini...")
+    print("✨ Connecting to Gemini...")
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-2.5-flash')
 
+    # Randomize branding for variety
+    brand_variations = [
+        "Astro Boli",
+        "AstroBoli AI", 
+        "Astro AI",
+        "AstroBoli",
+        "Astro Boli AI"
+    ]
+    brand_name = random.choice(brand_variations)
+    brand_hashtag = brand_name.replace(" ", "")  # Remove spaces for hashtag
 
-    prompt = """
-    You are 'Astroboli AI' — a creative branding studio and mystic astrologer for astroboli.com.
+    prompt = f"""
+    You are '{brand_name}' — a mystical AI art studio specializing in breathtaking cosmic visuals and astrology insights for astroboli.com.
 
     For today's daily horoscope or cosmic energy, produce a single JSON object with the following keys:
-    - "image_prompt": a highly-detailed image prompt to feed into an image generator. Include necessary style tokens, composition, color palette, mood, lighting, texture, and technical notes (important: `aspect_ratio:1:1`, `resolution:1080x1080`, `no readable text`, `no watermark`). Include a subtle area for a brand badge (no readable logo text on the image). Use style words: ethereal, cosmic, glowing, voluminous fog, gold & indigo palette, intricate star textures.
-    - "caption": an Instagram-ready caption (<=300 chars). It must mention **Astroboli AI** at least once and include a short CTA such as "Visit astroboli.com" or "Read more on astroboli.com" and 1-2 emojis.
-    - "hashtags": an **array of exactly 5** highly relevant hashtags (include `#AstroboliAI` and order from most to least relevant).
-    - "alt_text": a short accessible image description (1-2 sentences) suitable for Instagram alt text.
+    - "image_prompt": A HIGHLY DETAILED, VISUALLY STUNNING image prompt for an AI image generator. This must create an eye-catching, scroll-stopping Instagram post. Include:
+      * **Composition**: Dramatic focal point, rule of thirds, cinematic framing
+      * **Style**: Choose from (ethereal watercolor | hyperrealistic 3D render | dreamy oil painting | neon cyberpunk | elegant minimalism)
+      * **Color Palette**: Rich, harmonious colors (golden hour warmth | deep cosmic purples & blues | vibrant neon gradients | serene pastels)
+      * **Lighting**: Volumetric god rays, bioluminescent glow, rim lighting, aurora effects
+      * **Elements**: Celestial bodies (planets, moons, stars), zodiac symbols, sacred geometry, flowing energy wisps, crystalline structures
+      * **Mood**: Mystical, enchanting, otherworldly, peaceful, powerful
+      * **Technical**: aspect_ratio:1:1, resolution:1080x1080, no readable text, no watermarks, ultra detailed, sharp focus
+      * **Avoid**: Any text, logos, or readable symbols in the image itself
+      
+    - "caption": An engaging Instagram caption (≤300 chars) that:
+      * Mentions **{brand_name}** once naturally
+      * Includes a mystical insight or daily affirmation
+      * Ends with "✨ Visit astroboli.com for your full reading"
+      * Uses 1-2 relevant emojis (🌙 ✨ 🔮 ⭐ 🌟 💫)
+      
+    - "hashtags": An **array of exactly 5** highly relevant hashtags:
+      * MUST include #{brand_hashtag} as the first one
+      * Choose trending astrology/spirituality tags
+      * Order from most to least relevant
+      
+    - "alt_text": A concise, accessible image description (1-2 sentences) for Instagram alt text.
 
     Requirements:
-    - Return *only* valid JSON (no markdown, no explanation, no extra text).
-    - Hashtags must be an array of length exactly 5; include `#AstroboliAI` as one of them.
-    - Keep tone mystical, shareable, and concise.
+    - Return *only* valid JSON (no markdown fences, no explanation, no extra text)
+    - Hashtags must be an array of exactly 5 strings
+    - Focus on creating VISUALLY STUNNING, SCROLL-STOPPING imagery
+    - Keep tone mystical, shareable, and inspiring
 
     Example output:
-    {
-      "image_prompt": "...",
-      "caption": "...",
-      "hashtags": ["#AstroboliAI","#astrology","#numerology","#horoscope","#zodiac"],
-      "alt_text": "..."
-    }
+    {{
+      "image_prompt": "Ethereal watercolor illustration of a luminous crescent moon cradled by delicate cosmic clouds, swirling gold and indigo nebula, scattered stardust particles, soft volumetric lighting, dreamy bokeh effects, serene and mystical atmosphere, ultra detailed, aspect_ratio:1:1, resolution:1080x1080, no text, soft focus background with sharp moon details",
+      "caption": "The moon whispers secrets of transformation tonight. {brand_name} sees powerful energy shifts ahead. ✨ Visit astroboli.com for your full reading 🌙",
+      "hashtags": ["#{brand_hashtag}","#Astrology","#DailyHoroscope","#CosmicEnergy","#Spirituality"],
+      "alt_text": "A dreamy watercolor moon surrounded by swirling cosmic clouds in gold and purple hues."
+    }}
     """
 
     response = model.generate_content(prompt)
