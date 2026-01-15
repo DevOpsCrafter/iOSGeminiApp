@@ -11,6 +11,8 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from io import BytesIO
 
 # Load secrets from .env file if present (Local dev)
 load_dotenv()
@@ -264,6 +266,148 @@ def download_image(url):
     else:
         raise Exception(f"Failed to download image: {response.status_code}")
 
+def add_text_overlay(image_bytes, quote_text, brand_name):
+    """Add branded text overlay to image with professional styling."""
+    print("Adding text overlay to image...")
+    
+    # Open image
+    img = Image.open(BytesIO(image_bytes)).convert("RGBA")
+    width, height = img.size
+    
+    # Create overlay layer for text with transparency
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    
+    # Try to get a nice font, fallback to default
+    try:
+        # Try common system fonts
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux
+            "C:/Windows/Fonts/arial.ttf",  # Windows
+            "/System/Library/Fonts/Helvetica.ttc",  # macOS
+        ]
+        quote_font = None
+        brand_font = None
+        website_font = None
+        
+        for font_path in font_paths:
+            try:
+                quote_font = ImageFont.truetype(font_path, size=48)
+                brand_font = ImageFont.truetype(font_path, size=36)
+                website_font = ImageFont.truetype(font_path, size=28)
+                break
+            except:
+                continue
+        
+        if not quote_font:
+            quote_font = ImageFont.load_default()
+            brand_font = quote_font
+            website_font = quote_font
+    except:
+        quote_font = ImageFont.load_default()
+        brand_font = quote_font
+        website_font = quote_font
+    
+    # Prepare quote text (wrap to fit)
+    max_chars_per_line = 30
+    words = quote_text.split()
+    lines = []
+    current_line = ""
+    for word in words:
+        if len(current_line) + len(word) + 1 <= max_chars_per_line:
+            current_line = f"{current_line} {word}".strip()
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = word
+    if current_line:
+        lines.append(current_line)
+    
+    # Limit to 3 lines max
+    lines = lines[:3]
+    if len(lines) == 3 and len(quote_text) > sum(len(l) for l in lines):
+        lines[2] = lines[2][:max_chars_per_line-3] + "..."
+    
+    wrapped_quote = "\n".join(lines)
+    
+    # Calculate positions
+    padding = 40
+    
+    # Draw semi-transparent background strip at bottom for text
+    bg_height = 200
+    bg_top = height - bg_height
+    draw.rectangle(
+        [(0, bg_top), (width, height)],
+        fill=(0, 0, 0, 160)  # Semi-transparent black
+    )
+    
+    # Draw quote text with shadow effect
+    quote_y = bg_top + 25
+    shadow_offset = 2
+    
+    # Shadow
+    draw.multiline_text(
+        (padding + shadow_offset, quote_y + shadow_offset),
+        wrapped_quote,
+        font=quote_font,
+        fill=(0, 0, 0, 200),
+        align="left"
+    )
+    # Main text
+    draw.multiline_text(
+        (padding, quote_y),
+        wrapped_quote,
+        font=quote_font,
+        fill=(255, 255, 255, 255),
+        align="left"
+    )
+    
+    # Draw brand name at bottom right
+    brand_text = f"— {brand_name}"
+    brand_bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
+    brand_width = brand_bbox[2] - brand_bbox[0]
+    brand_x = width - brand_width - padding
+    brand_y = height - 85
+    
+    # Shadow
+    draw.text(
+        (brand_x + shadow_offset, brand_y + shadow_offset),
+        brand_text,
+        font=brand_font,
+        fill=(0, 0, 0, 200)
+    )
+    # Main text (golden color)
+    draw.text(
+        (brand_x, brand_y),
+        brand_text,
+        font=brand_font,
+        fill=(255, 215, 0, 255)  # Gold
+    )
+    
+    # Draw website at very bottom
+    website_text = "astroboli.com"
+    website_bbox = draw.textbbox((0, 0), website_text, font=website_font)
+    website_width = website_bbox[2] - website_bbox[0]
+    website_x = width - website_width - padding
+    website_y = height - 45
+    
+    draw.text(
+        (website_x, website_y),
+        website_text,
+        font=website_font,
+        fill=(200, 200, 200, 220)  # Light gray
+    )
+    
+    # Composite overlay onto original image
+    result = Image.alpha_composite(img, overlay)
+    
+    # Convert back to bytes
+    output = BytesIO()
+    result.convert("RGB").save(output, format="JPEG", quality=95)
+    output.seek(0)
+    
+    return output.getvalue()
+
 def send_email(image_data, caption):
     """Sends email with image and caption."""
     print("Sending email...")
@@ -370,10 +514,26 @@ def main():
         # 3. Download Image
         image_data = download_image(image_url)
         
-        # 4. Send Email
-        send_email(image_data, caption)
+        # 4. Add text overlay with inspirational quote and brand
+        # Extract short quote from caption (first line/sentence)
+        caption_lines = caption.split('\n')
+        short_quote = caption_lines[0] if caption_lines else "Embrace the cosmic energy"
+        # Clean up the quote - remove hashtags and truncate if too long
+        short_quote = short_quote.split('#')[0].strip()
+        if len(short_quote) > 90:
+            short_quote = short_quote[:87] + "..."
         
-        print("\nDone! Check your email for today's post.")
+        # Get brand name from the prompt variations used earlier
+        brand_variations = ["Astro Boli", "AstroBoli AI", "Astro AI", "AstroBoli", "Astro Boli AI"]
+        brand_name = random.choice(brand_variations)
+        
+        # Apply text overlay to image
+        image_with_text = add_text_overlay(image_data, short_quote, brand_name)
+        
+        # 5. Send Email (with text-overlaid image)
+        send_email(image_with_text, caption)
+        
+        print("\n✨ Done! Check your email for today's post.")
         
     except Exception as e:
         print(f"Error: {e}")
