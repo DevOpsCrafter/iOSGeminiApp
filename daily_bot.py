@@ -278,23 +278,25 @@ def add_text_overlay(image_bytes, quote_text, brand_name):
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     
+    # Font sizes - smaller to fit better
+    quote_size = 36
+    brand_size = 28
+    website_size = 20
+    
     # Try to get a nice font, fallback to default
     try:
-        # Try common system fonts
         font_paths = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux
             "C:/Windows/Fonts/arial.ttf",  # Windows
             "/System/Library/Fonts/Helvetica.ttc",  # macOS
         ]
         quote_font = None
-        brand_font = None
-        website_font = None
         
         for font_path in font_paths:
             try:
-                quote_font = ImageFont.truetype(font_path, size=48)
-                brand_font = ImageFont.truetype(font_path, size=36)
-                website_font = ImageFont.truetype(font_path, size=28)
+                quote_font = ImageFont.truetype(font_path, size=quote_size)
+                brand_font = ImageFont.truetype(font_path, size=brand_size)
+                website_font = ImageFont.truetype(font_path, size=website_size)
                 break
             except:
                 continue
@@ -308,8 +310,8 @@ def add_text_overlay(image_bytes, quote_text, brand_name):
         brand_font = quote_font
         website_font = quote_font
     
-    # Prepare quote text (wrap to fit)
-    max_chars_per_line = 30
+    # Prepare quote text (wrap to fit) - limit to 2 lines for cleaner look
+    max_chars_per_line = 35
     words = quote_text.split()
     lines = []
     current_line = ""
@@ -323,79 +325,87 @@ def add_text_overlay(image_bytes, quote_text, brand_name):
     if current_line:
         lines.append(current_line)
     
-    # Limit to 3 lines max
-    lines = lines[:3]
-    if len(lines) == 3 and len(quote_text) > sum(len(l) for l in lines):
-        lines[2] = lines[2][:max_chars_per_line-3] + "..."
+    # Limit to 2 lines max for better appearance
+    lines = lines[:2]
+    if len(lines) == 2 and len(" ".join(lines)) < len(quote_text):
+        lines[1] = lines[1][:max_chars_per_line-3] + "..."
     
     wrapped_quote = "\n".join(lines)
+    num_lines = len(lines)
     
-    # Calculate positions
-    padding = 40
+    # Calculate required height for all elements
+    line_height = quote_size + 8  # font size + spacing
+    quote_height = num_lines * line_height
+    brand_height = brand_size + 5
+    website_height = website_size + 5
     
-    # Draw semi-transparent background strip at bottom for text
-    bg_height = 200
+    padding = 30
+    vertical_spacing = 15
+    
+    # Total content height
+    total_content_height = quote_height + vertical_spacing + brand_height + vertical_spacing + website_height + (padding * 2)
+    
+    # Background strip at bottom
+    bg_height = max(total_content_height, 160)
     bg_top = height - bg_height
+    
     draw.rectangle(
         [(0, bg_top), (width, height)],
-        fill=(0, 0, 0, 160)  # Semi-transparent black
+        fill=(0, 0, 0, 170)  # Semi-transparent black
     )
     
-    # Draw quote text with shadow effect
-    quote_y = bg_top + 25
+    # Position elements from top of background strip
+    current_y = bg_top + padding
     shadow_offset = 2
     
-    # Shadow
+    # Draw quote text
     draw.multiline_text(
-        (padding + shadow_offset, quote_y + shadow_offset),
+        (padding + shadow_offset, current_y + shadow_offset),
         wrapped_quote,
         font=quote_font,
         fill=(0, 0, 0, 200),
         align="left"
     )
-    # Main text
     draw.multiline_text(
-        (padding, quote_y),
+        (padding, current_y),
         wrapped_quote,
         font=quote_font,
         fill=(255, 255, 255, 255),
         align="left"
     )
+    current_y += quote_height + vertical_spacing
     
-    # Draw brand name at bottom right
+    # Draw brand name (right aligned)
     brand_text = f"— {brand_name}"
     brand_bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
     brand_width = brand_bbox[2] - brand_bbox[0]
     brand_x = width - brand_width - padding
-    brand_y = height - 85
     
-    # Shadow
     draw.text(
-        (brand_x + shadow_offset, brand_y + shadow_offset),
+        (brand_x + shadow_offset, current_y + shadow_offset),
         brand_text,
         font=brand_font,
         fill=(0, 0, 0, 200)
     )
-    # Main text (golden color)
     draw.text(
-        (brand_x, brand_y),
+        (brand_x, current_y),
         brand_text,
         font=brand_font,
         fill=(255, 215, 0, 255)  # Gold
     )
+    current_y += brand_height + vertical_spacing
     
-    # Draw website at very bottom
-    website_text = "astroboli.com"
+    # Draw website (right aligned, at very bottom)
+    website_text = "✨ astroboli.com"
     website_bbox = draw.textbbox((0, 0), website_text, font=website_font)
     website_width = website_bbox[2] - website_bbox[0]
     website_x = width - website_width - padding
-    website_y = height - 45
     
     draw.text(
-        (website_x, website_y),
+        (website_x, current_y),
         website_text,
         font=website_font,
-        fill=(200, 200, 200, 220)  # Light gray
+        fill=(180, 180, 180, 220)  # Light gray
     )
     
     # Composite overlay onto original image
