@@ -396,7 +396,7 @@ def add_text_overlay(image_bytes, quote_text, brand_name):
     current_y += brand_height + vertical_spacing
     
     # Draw website (right aligned, at very bottom)
-    website_text = "* astroboli.com *"
+    website_text = "astroboli.com"
     website_bbox = draw.textbbox((0, 0), website_text, font=website_font)
     website_width = website_bbox[2] - website_bbox[0]
     website_x = width - website_width - padding
