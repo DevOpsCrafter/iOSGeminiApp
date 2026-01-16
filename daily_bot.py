@@ -267,28 +267,35 @@ def download_image(url):
         raise Exception(f"Failed to download image: {response.status_code}")
 
 def add_text_overlay(image_bytes, quote_text, brand_name):
-    """Add branded text overlay to image with professional styling."""
+    """Add branded text overlay to image with beautiful gradient styling."""
     print("Adding text overlay to image...")
     
-    # Open image
+    # Open image and force resize to Instagram dimensions
     img = Image.open(BytesIO(image_bytes)).convert("RGBA")
+    
+    # Force exact Instagram dimensions (1080x1080)
+    INSTAGRAM_SIZE = (1080, 1080)
+    if img.size != INSTAGRAM_SIZE:
+        img = img.resize(INSTAGRAM_SIZE, Image.Resampling.LANCZOS)
+    
     width, height = img.size
     
-    # Create overlay layer for text with transparency
+    # Create overlay layer
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     
-    # Font sizes - smaller to fit better
-    quote_size = 36
-    brand_size = 28
-    website_size = 20
+    # Font sizes - larger for better visibility
+    quote_size = 42
+    brand_size = 32
+    website_size = 24
     
-    # Try to get a nice font, fallback to default
+    # Try to get fonts
     try:
         font_paths = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux
-            "C:/Windows/Fonts/arial.ttf",  # Windows
-            "/System/Library/Fonts/Helvetica.ttc",  # macOS
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",  # Arial Bold
+            "C:/Windows/Fonts/arial.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
         ]
         quote_font = None
         
@@ -310,8 +317,8 @@ def add_text_overlay(image_bytes, quote_text, brand_name):
         brand_font = quote_font
         website_font = quote_font
     
-    # Prepare quote text (wrap to fit) - limit to 2 lines for cleaner look
-    max_chars_per_line = 35
+    # Prepare quote text - limit to 2 lines
+    max_chars_per_line = 32
     words = quote_text.split()
     lines = []
     current_line = ""
@@ -325,7 +332,6 @@ def add_text_overlay(image_bytes, quote_text, brand_name):
     if current_line:
         lines.append(current_line)
     
-    # Limit to 2 lines max for better appearance
     lines = lines[:2]
     if len(lines) == 2 and len(" ".join(lines)) < len(quote_text):
         lines[1] = lines[1][:max_chars_per_line-3] + "..."
@@ -333,87 +339,95 @@ def add_text_overlay(image_bytes, quote_text, brand_name):
     wrapped_quote = "\n".join(lines)
     num_lines = len(lines)
     
-    # Calculate required height for all elements
-    line_height = quote_size + 8  # font size + spacing
+    # Calculate dimensions
+    line_height = quote_size + 12
     quote_height = num_lines * line_height
-    brand_height = brand_size + 5
-    website_height = website_size + 5
+    brand_height = brand_size + 10
+    website_height = website_size + 10
     
-    padding = 30
-    vertical_spacing = 15
+    padding = 40
+    vertical_spacing = 20
     
-    # Total content height
     total_content_height = quote_height + vertical_spacing + brand_height + vertical_spacing + website_height + (padding * 2)
-    
-    # Background strip at bottom
-    bg_height = max(total_content_height, 160)
+    bg_height = max(total_content_height, 220)
     bg_top = height - bg_height
     
-    draw.rectangle(
-        [(0, bg_top), (width, height)],
-        fill=(0, 0, 0, 170)  # Semi-transparent black
-    )
+    # Create beautiful gradient background (fade from transparent to dark)
+    for y in range(bg_height):
+        # Calculate opacity - starts transparent, becomes more opaque at bottom
+        progress = y / bg_height
+        opacity = int(progress * progress * 200)  # Quadratic for smooth fade
+        draw.line([(0, bg_top + y), (width, bg_top + y)], fill=(20, 10, 40, opacity))
     
-    # Position elements from top of background strip
-    current_y = bg_top + padding
-    shadow_offset = 2
+    # Add a subtle highlight line at top of gradient
+    draw.line([(0, bg_top), (width, bg_top)], fill=(255, 215, 0, 80), width=2)
     
-    # Draw quote text
-    draw.multiline_text(
-        (padding + shadow_offset, current_y + shadow_offset),
-        wrapped_quote,
-        font=quote_font,
-        fill=(0, 0, 0, 200),
-        align="left"
-    )
-    draw.multiline_text(
+    # Position elements
+    current_y = bg_top + padding + 10
+    
+    # Draw quote text with outline effect for better visibility
+    def draw_text_with_outline(draw, pos, text, font, fill_color, outline_color, outline_width=3):
+        x, y = pos
+        # Draw outline
+        for dx in range(-outline_width, outline_width + 1):
+            for dy in range(-outline_width, outline_width + 1):
+                if dx != 0 or dy != 0:
+                    draw.multiline_text((x + dx, y + dy), text, font=font, fill=outline_color, align="left")
+        # Draw main text
+        draw.multiline_text(pos, text, font=font, fill=fill_color, align="left")
+    
+    # Quote text with dark outline
+    draw_text_with_outline(
+        draw,
         (padding, current_y),
         wrapped_quote,
-        font=quote_font,
-        fill=(255, 255, 255, 255),
-        align="left"
+        quote_font,
+        (255, 255, 255, 255),  # White text
+        (0, 0, 0, 180),  # Dark outline
+        2
     )
     current_y += quote_height + vertical_spacing
     
-    # Draw brand name (right aligned)
-    brand_text = f"— {brand_name}"
+    # Brand name with golden glow effect
+    brand_text = f"-- {brand_name}"
     brand_bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
     brand_width = brand_bbox[2] - brand_bbox[0]
     brand_x = width - brand_width - padding
     
-    draw.text(
-        (brand_x + shadow_offset, current_y + shadow_offset),
-        brand_text,
-        font=brand_font,
-        fill=(0, 0, 0, 200)
-    )
-    draw.text(
-        (brand_x, current_y),
-        brand_text,
-        font=brand_font,
-        fill=(255, 215, 0, 255)  # Gold
-    )
+    # Glow effect for brand
+    for offset in range(4, 0, -1):
+        glow_alpha = 50 - (offset * 10)
+        for dx in range(-offset, offset + 1):
+            for dy in range(-offset, offset + 1):
+                draw.text((brand_x + dx, current_y + dy), brand_text, font=brand_font, fill=(255, 215, 0, glow_alpha))
+    
+    # Main brand text
+    draw.text((brand_x, current_y), brand_text, font=brand_font, fill=(255, 215, 0, 255))
     current_y += brand_height + vertical_spacing
     
-    # Draw website (right aligned, at very bottom)
+    # Website with subtle styling
     website_text = "astroboli.com"
     website_bbox = draw.textbbox((0, 0), website_text, font=website_font)
     website_width = website_bbox[2] - website_bbox[0]
     website_x = width - website_width - padding
     
-    draw.text(
-        (website_x, current_y),
-        website_text,
-        font=website_font,
-        fill=(180, 180, 180, 220)  # Light gray
-    )
+    # Outline for website
+    for dx in range(-1, 2):
+        for dy in range(-1, 2):
+            if dx != 0 or dy != 0:
+                draw.text((website_x + dx, current_y + dy), website_text, font=website_font, fill=(0, 0, 0, 150))
+    draw.text((website_x, current_y), website_text, font=website_font, fill=(200, 200, 220, 255))
     
-    # Composite overlay onto original image
+    # Composite overlay
     result = Image.alpha_composite(img, overlay)
     
-    # Convert back to bytes
+    # Ensure final output is exactly 1080x1080
+    if result.size != INSTAGRAM_SIZE:
+        result = result.resize(INSTAGRAM_SIZE, Image.Resampling.LANCZOS)
+    
+    # Convert to high-quality JPEG
     output = BytesIO()
-    result.convert("RGB").save(output, format="JPEG", quality=95)
+    result.convert("RGB").save(output, format="JPEG", quality=98)
     output.seek(0)
     
     return output.getvalue()
