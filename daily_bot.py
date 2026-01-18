@@ -270,13 +270,28 @@ def add_text_overlay(image_bytes, quote_text, brand_name):
     """Add branded text overlay to image with beautiful gradient styling."""
     print("Adding text overlay to image...")
     
-    # Open image and force resize to Instagram dimensions
+    # Open image
     img = Image.open(BytesIO(image_bytes)).convert("RGBA")
     
-    # Force exact Instagram dimensions (1080x1080)
+    # Instagram requires exact 1:1 square - center crop first, then resize
     INSTAGRAM_SIZE = (1080, 1080)
+    
+    # Center crop to square if not already square
+    w, h = img.size
+    if w != h:
+        # Crop to square from center
+        min_dim = min(w, h)
+        left = (w - min_dim) // 2
+        top = (h - min_dim) // 2
+        right = left + min_dim
+        bottom = top + min_dim
+        img = img.crop((left, top, right, bottom))
+        print(f"Cropped from {w}x{h} to {min_dim}x{min_dim}")
+    
+    # Resize to exact Instagram dimensions
     if img.size != INSTAGRAM_SIZE:
         img = img.resize(INSTAGRAM_SIZE, Image.Resampling.LANCZOS)
+        print(f"Resized to {INSTAGRAM_SIZE[0]}x{INSTAGRAM_SIZE[1]}")
     
     width, height = img.size
     
