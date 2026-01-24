@@ -347,35 +347,140 @@ async def generate_voiceover(text, output_path):
         return False
 
 def download_ai_video(prompt, duration=8):
-    """Download AI-generated video from Pollinations.ai."""
-    print(f"🎥 Generating AI video: {prompt[:50]}...")
+    """
+    Download AI-generated video from multiple free providers.
+    Tries each provider in sequence until one succeeds.
+    Returns video bytes or None if all fail.
+    """
+    print(f"🎥 Generating AI video: {prompt[:60]}...")
+    
+    providers = [
+        _try_huggingface_video,
+        _try_modelslab_video,
+        _try_pollinations_video,
+    ]
+    
+    for provider in providers:
+        try:
+            result = provider(prompt, duration)
+            if result and len(result) > 10000:  # Valid video should be > 10KB
+                return result
+        except Exception as e:
+            print(f"  Provider failed: {e}")
+            continue
+    
+    print("❌ All video providers failed")
+    return None
+
+def _try_huggingface_video(prompt, duration):
+    """Try Hugging Face Spaces Gradio API for video generation."""
+    print("  Trying: Hugging Face Gradio...")
     
     try:
-        # Pollinations.ai unified API video endpoint
+        from gradio_client import Client
+        
+        # Try CogVideoX on Hugging Face Spaces
+        spaces_to_try = [
+            "THUDM/CogVideoX-5B-Space",
+            "Kyky/CogVideoX-Fun-V1-1-5B-Pose",
+        ]
+        
+        for space in spaces_to_try:
+            try:
+                print(f"    Connecting to {space}...")
+                client = Client(space, verbose=False)
+                
+                # Most video spaces use predict() with prompt and other params
+                result = client.predict(
+                    prompt=prompt,
+                    api_name="/generate"
+                )
+                
+                if result and os.path.exists(result):
+                    with open(result, 'rb') as f:
+                        video_data = f.read()
+                    print(f"    ✅ HuggingFace video: {len(video_data)//1024}KB")
+                    return video_data
+                    
+            except Exception as e:
+                print(f"    {space}: {str(e)[:50]}")
+                continue
+                
+    except ImportError:
+        print("    gradio_client not installed")
+    
+    return None
+
+def _try_modelslab_video(prompt, duration):
+    """Try ModelsLab free tier for video generation."""
+    print("  Trying: ModelsLab API...")
+    
+    try:
+        # ModelsLab offers free tier - no API key for limited use
+        api_url = "https://modelslab.com/api/v6/video/text2video"
+        
+        payload = {
+            "key": "",  # Empty for free tier
+            "prompt": prompt,
+            "negative_prompt": "low quality, blurry, distorted",
+            "model_id": "cogvideox",
+            "height": 480,
+            "width": 720,
+            "num_frames": 16,
+            "fps": 8,
+        }
+        
+        response = requests.post(api_url, json=payload, timeout=120)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status") == "success" and data.get("output"):
+                video_url = data["output"][0] if isinstance(data["output"], list) else data["output"]
+                video_response = requests.get(video_url, timeout=60)
+                if video_response.status_code == 200:
+                    print(f"    ✅ ModelsLab video: {len(video_response.content)//1024}KB")
+                    return video_response.content
+        
+        print(f"    ModelsLab returned: {response.status_code}")
+        
+    except Exception as e:
+        print(f"    ModelsLab error: {e}")
+    
+    return None
+
+def _try_pollinations_video(prompt, duration):
+    """Try Pollinations.ai for video generation."""
+    print("  Trying: Pollinations.ai...")
+    
+    try:
         encoded_prompt = urllib.parse.quote(prompt)
         seed = random.randint(1, 1000000)
         
-        # Correct URL format: gen.pollinations.ai/video/{prompt}?model=veo
-        video_url = f"https://gen.pollinations.ai/video/{encoded_prompt}?model=veo&seed={seed}"
+        # Try different endpoint formats
+        endpoints = [
+            f"https://gen.pollinations.ai/video/{encoded_prompt}?model=veo&seed={seed}",
+            f"https://api.pollinations.ai/video/text-to-video?prompt={encoded_prompt}",
+            f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=video",
+        ]
         
-        print(f"Video URL: {video_url[:80]}...")
-        
-        # Download video (may take a while as it's generated on-demand)
-        response = requests.get(video_url, timeout=180)  # 3 minute timeout
-        
-        if response.status_code == 200 and len(response.content) > 10000:  # Minimum size check
-            print(f"✅ AI video downloaded: {len(response.content)//1024}KB")
-            return response.content
-        else:
-            print(f"⚠️ Video generation returned status: {response.status_code}, size: {len(response.content)}")
-            return None
-            
-    except requests.exceptions.Timeout:
-        print("⚠️ Video generation timed out (>3 min)")
-        return None
+        for url in endpoints:
+            try:
+                print(f"    Trying: {url[:60]}...")
+                response = requests.get(url, timeout=120)
+                
+                if response.status_code == 200 and len(response.content) > 10000:
+                    content_type = response.headers.get('content-type', '')
+                    if 'video' in content_type or len(response.content) > 50000:
+                        print(f"    ✅ Pollinations video: {len(response.content)//1024}KB")
+                        return response.content
+                        
+            except Exception as e:
+                continue
+                
     except Exception as e:
-        print(f"⚠️ Video generation error: {e}")
-        return None
+        print(f"    Pollinations error: {e}")
+    
+    return None
 
 def generate_reel(image_bytes, caption_text, brand_name):
     """Generate a professional Instagram Reel with AI voiceover and video effects."""
@@ -462,85 +567,10 @@ def generate_reel(image_bytes, caption_text, brand_name):
                 video_clip = video_clip.subclipped(0, DURATION)
                 
         else:
-            print("⚠️ AI video unavailable, using animated image fallback")
-            # ===== FALLBACK: ANIMATED IMAGE =====
-            # Open and prepare image
-            img = Image.open(BytesIO(image_bytes)).convert("RGB")
-        
-            # Create portrait canvas with gradient background
-            bg = Image.new("RGB", (REEL_WIDTH, REEL_HEIGHT), (10, 5, 25))
-            
-            # Add subtle gradient
-            draw = ImageDraw.Draw(bg)
-            for y in range(REEL_HEIGHT):
-                progress = y / REEL_HEIGHT
-                r = int(15 - 10 * progress)
-                g = int(5 - 3 * progress)
-                b = int(35 - 15 * progress)
-                draw.line([(0, y), (REEL_WIDTH, y)], fill=(max(0, r), max(0, g), max(0, b)))
-            
-            # Resize image to fit width with some padding
-            img_width = int(REEL_WIDTH * 0.9)
-            aspect = img.size[0] / img.size[1]
-            img_height = int(img_width / aspect)
-            img_resized = img.resize((img_width, img_height), Image.Resampling.LANCZOS)
-            
-            # Center the image in the frame
-            x_offset = (REEL_WIDTH - img_width) // 2
-            y_offset = int(REEL_HEIGHT * 0.15)
-            bg.paste(img_resized, (x_offset, y_offset))
-            
-            # Add brand watermark at bottom
-            try:
-                font_paths = [
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                    "C:/Windows/Fonts/arialbd.ttf",
-                    "C:/Windows/Fonts/arial.ttf",
-                ]
-                font = None
-                for fp in font_paths:
-                    try:
-                        font = ImageFont.truetype(fp, 36)
-                        break
-                    except:
-                        continue
-                if font:
-                    draw = ImageDraw.Draw(bg)
-                    text = brand_name.upper()
-                    bbox = draw.textbbox((0, 0), text, font=font)
-                    text_width = bbox[2] - bbox[0]
-                    text_x = (REEL_WIDTH - text_width) // 2
-                    text_y = REEL_HEIGHT - 100
-                    draw.text((text_x + 2, text_y + 2), text, font=font, fill=(0, 0, 0))
-                    draw.text((text_x, text_y), text, font=font, fill=(255, 215, 0))
-            except:
-                pass
-            
-            base_frame = np.array(bg)
-            
-            # Create smooth zoom effect
-            def make_frame(t):
-                progress = t / DURATION
-                eased = progress * progress * (3 - 2 * progress)
-                zoom = 1.0 + (0.2 * eased)
-                
-                h, w = base_frame.shape[:2]
-                new_w = int(w / zoom)
-                new_h = int(h / zoom)
-                
-                x_start = (w - new_w) // 2
-                y_start = (h - new_h) // 2
-                
-                cropped = base_frame[y_start:y_start+new_h, x_start:x_start+new_w]
-                
-                pil_img = Image.fromarray(cropped)
-                pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
-                
-                return np.array(pil_img)
-            
-            # Create video clip from animated image
-            video_clip = VideoClip(make_frame, duration=DURATION)
-            video_clip = video_clip.with_fps(FPS)
+            # NO FALLBACK - User requested real AI video only
+            print("❌ AI video generation failed - no reel will be created")
+            print("💡 All providers returned errors. Real AI video required - no fallback to animated images.")
+            return None
         
         # ===== ADD AUDIO AND RENDER =====
         if audio_path:
