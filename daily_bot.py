@@ -11,8 +11,12 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+from email.mime.base import MIMEBase
+from email import encoders
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from io import BytesIO
+import tempfile
+import numpy as np
 
 # Load secrets from .env file if present (Local dev)
 load_dotenv()
@@ -311,23 +315,124 @@ def process_for_instagram(image_bytes):
     
     return output.getvalue()
 
-def send_email(image_data, caption):
-    """Sends email with image and caption."""
+def generate_reel(image_bytes, caption_text, brand_name):
+    """Generate an Instagram Reel from a static image with zoom animation."""
+    print("Generating Instagram Reel...")
+    
+    try:
+        from moviepy.video.VideoClip import ImageClip
+        from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+        from moviepy.video.fx.resize import resize
+    except ImportError:
+        print("WARNING: moviepy not available, skipping reel generation")
+        return None
+    
+    # Instagram Reels specs: 9:16 aspect ratio, 1080x1920
+    REEL_WIDTH = 1080
+    REEL_HEIGHT = 1920
+    DURATION = 10  # 10 seconds
+    FPS = 30
+    
+    # Open image
+    img = Image.open(BytesIO(image_bytes)).convert("RGB")
+    
+    # Create portrait version - expand square to portrait with gradient background
+    bg = Image.new("RGB", (REEL_WIDTH, REEL_HEIGHT), (15, 10, 30))  # Dark cosmic background
+    
+    # Resize image to fit width
+    aspect = img.size[0] / img.size[1]
+    new_width = REEL_WIDTH
+    new_height = int(new_width / aspect)
+    img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    
+    # Center the image vertically
+    y_offset = (REEL_HEIGHT - new_height) // 2
+    bg.paste(img_resized, (0, y_offset))
+    
+    # Convert to numpy array for moviepy
+    frame = np.array(bg)
+    
+    # Create zoom function for Ken Burns effect
+    def make_frame(t):
+        # Zoom from 1.0x to 1.1x over duration
+        zoom = 1.0 + (0.1 * t / DURATION)
+        
+        # Calculate crop for zoom effect
+        h, w = frame.shape[:2]
+        new_w = int(w / zoom)
+        new_h = int(h / zoom)
+        
+        # Center crop
+        x_start = (w - new_w) // 2
+        y_start = (h - new_h) // 2
+        
+        cropped = frame[y_start:y_start+new_h, x_start:x_start+new_w]
+        
+        # Resize back to original dimensions
+        from PIL import Image
+        pil_img = Image.fromarray(cropped)
+        pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
+        
+        return np.array(pil_img)
+    
+    # Create video clip
+    clip = ImageClip(make_frame, duration=DURATION)
+    clip = clip.set_fps(FPS)
+    
+    # Write to temporary file
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+        tmp_path = tmp.name
+    
+    clip.write_videofile(
+        tmp_path,
+        codec='libx264',
+        audio=False,
+        fps=FPS,
+        preset='medium',
+        verbose=False,
+        logger=None
+    )
+    
+    # Read the video file
+    with open(tmp_path, 'rb') as f:
+        video_data = f.read()
+    
+    # Clean up
+    os.unlink(tmp_path)
+    clip.close()
+    
+    print(f"Reel generated: {REEL_WIDTH}x{REEL_HEIGHT}, {DURATION}s, {FPS}fps")
+    
+    return video_data
+
+def send_email(image_data, caption, reel_data=None):
+    """Sends email with image, caption, and optional reel."""
     print("Sending email...")
     
     # Create message
     msg = MIMEMultipart()
     msg['From'] = YOUR_EMAIL
     msg['To'] = YOUR_EMAIL
-    msg['Subject'] = 'Your Daily Astroboli Post is Ready!'
+    
+    has_reel = reel_data is not None
+    msg['Subject'] = 'Your Daily Astroboli Post & Reel are Ready!' if has_reel else 'Your Daily Astroboli Post is Ready!'
     
     # Email body
+    reel_section = """
+    <div style="background: #E6FFFA; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #38B2AC;">
+        <h3 style="color: #234E52; margin-top: 0;">🎬 Instagram Reel Attached!</h3>
+        <p style="color: #285E61;">A 10-second animated reel is also attached. Upload it as a Reel for maximum engagement!</p>
+    </div>
+    """ if has_reel else ""
+    
     body = f"""
 <html>
 <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-    <h2 style="color: #4A5568;">✨ Daily Astroboli Post Ready!</h2>
+    <h2 style="color: #4A5568;">✨ Daily Astroboli Content Ready!</h2>
     
     <p>Your mystical content for today has been generated and is ready to share on Instagram.</p>
+    
+    {reel_section}
     
     <div style="background: #F7FAFC; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <h3 style="color: #2D3748; margin-top: 0;">Caption & Hashtags:</h3>
@@ -339,14 +444,14 @@ def send_email(image_data, caption):
         <ol style="color: #4A5568;">
             <li>Open Instagram app on your phone</li>
             <li>Tap the <strong>+</strong> button</li>
-            <li>Select the attached image from "Recent"</li>
+            <li>Select the attached image/reel from "Recent"</li>
             <li>Tap Next → Next</li>
             <li>Paste the caption (copy from above)</li>
             <li>Tap <strong>Share</strong></li>
         </ol>
     </div>
     
-    <p style="color: #718096; font-size: 14px;">The image is attached to this email. Download it to your phone if needed.</p>
+    <p style="color: #718096; font-size: 14px;">Attachments: Post image (1080x1080){' + Reel video (1080x1920)' if has_reel else ''}</p>
 </body>
 </html>
 """
@@ -356,6 +461,15 @@ def send_email(image_data, caption):
     # Attach image
     image = MIMEImage(image_data, name='astroboli_post.jpg')
     msg.attach(image)
+    
+    # Attach reel if available
+    if reel_data:
+        reel = MIMEBase('video', 'mp4')
+        reel.set_payload(reel_data)
+        encoders.encode_base64(reel)
+        reel.add_header('Content-Disposition', 'attachment', filename='astroboli_reel.mp4')
+        msg.attach(reel)
+        print("Reel attached to email")
     
     # Send via Gmail SMTP
     try:
@@ -417,13 +531,18 @@ def main():
         # 3. Download Image
         image_data = download_image(image_url)
         
-        # 4. Process image for Instagram (1:1 ratio, NO text overlay)
+        # 4. Process image for Instagram (1:1 ratio, 1080x1080)
         processed_image = process_for_instagram(image_data)
         
-        # 5. Send Email
-        send_email(processed_image, caption)
+        # 5. Generate Instagram Reel (animated video from image)
+        brand_variations = ["Astro Boli", "AstroBoli AI", "Astro AI", "AstroBoli", "Astro Boli AI"]
+        brand_name = random.choice(brand_variations)
+        reel_data = generate_reel(image_data, caption, brand_name)
         
-        print("\n✨ Done! Check your email for today's post.")
+        # 6. Send Email with post image and reel
+        send_email(processed_image, caption, reel_data)
+        
+        print("\n✨ Done! Check your email for today's post and reel.")
         
     except Exception as e:
         print(f"Error: {e}")
