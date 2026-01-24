@@ -320,90 +320,95 @@ def generate_reel(image_bytes, caption_text, brand_name):
     print("Generating Instagram Reel...")
     
     try:
-        from moviepy.video.VideoClip import ImageClip
-        from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
-        from moviepy.video.fx.resize import resize
+        from moviepy.video.VideoClip import VideoClip
     except ImportError:
         print("WARNING: moviepy not available, skipping reel generation")
         return None
     
-    # Instagram Reels specs: 9:16 aspect ratio, 1080x1920
-    REEL_WIDTH = 1080
-    REEL_HEIGHT = 1920
-    DURATION = 10  # 10 seconds
-    FPS = 30
-    
-    # Open image
-    img = Image.open(BytesIO(image_bytes)).convert("RGB")
-    
-    # Create portrait version - expand square to portrait with gradient background
-    bg = Image.new("RGB", (REEL_WIDTH, REEL_HEIGHT), (15, 10, 30))  # Dark cosmic background
-    
-    # Resize image to fit width
-    aspect = img.size[0] / img.size[1]
-    new_width = REEL_WIDTH
-    new_height = int(new_width / aspect)
-    img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    
-    # Center the image vertically
-    y_offset = (REEL_HEIGHT - new_height) // 2
-    bg.paste(img_resized, (0, y_offset))
-    
-    # Convert to numpy array for moviepy
-    frame = np.array(bg)
-    
-    # Create zoom function for Ken Burns effect
-    def make_frame(t):
-        # Zoom from 1.0x to 1.1x over duration
-        zoom = 1.0 + (0.1 * t / DURATION)
+    try:
+        # Instagram Reels specs: 9:16 aspect ratio, 1080x1920
+        REEL_WIDTH = 1080
+        REEL_HEIGHT = 1920
+        DURATION = 10  # 10 seconds
+        FPS = 24  # Lower fps for smaller file
         
-        # Calculate crop for zoom effect
-        h, w = frame.shape[:2]
-        new_w = int(w / zoom)
-        new_h = int(h / zoom)
+        # Open image
+        img = Image.open(BytesIO(image_bytes)).convert("RGB")
         
-        # Center crop
-        x_start = (w - new_w) // 2
-        y_start = (h - new_h) // 2
+        # Create portrait version - expand square to portrait with gradient background
+        bg = Image.new("RGB", (REEL_WIDTH, REEL_HEIGHT), (15, 10, 30))  # Dark cosmic background
         
-        cropped = frame[y_start:y_start+new_h, x_start:x_start+new_w]
+        # Resize image to fit width
+        aspect = img.size[0] / img.size[1]
+        new_width = REEL_WIDTH
+        new_height = int(new_width / aspect)
+        img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
-        # Resize back to original dimensions
-        from PIL import Image
-        pil_img = Image.fromarray(cropped)
-        pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
+        # Center the image vertically
+        y_offset = (REEL_HEIGHT - new_height) // 2
+        bg.paste(img_resized, (0, y_offset))
         
-        return np.array(pil_img)
-    
-    # Create video clip
-    clip = ImageClip(make_frame, duration=DURATION)
-    clip = clip.set_fps(FPS)
-    
-    # Write to temporary file
-    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-        tmp_path = tmp.name
-    
-    clip.write_videofile(
-        tmp_path,
-        codec='libx264',
-        audio=False,
-        fps=FPS,
-        preset='medium',
-        verbose=False,
-        logger=None
-    )
-    
-    # Read the video file
-    with open(tmp_path, 'rb') as f:
-        video_data = f.read()
-    
-    # Clean up
-    os.unlink(tmp_path)
-    clip.close()
-    
-    print(f"Reel generated: {REEL_WIDTH}x{REEL_HEIGHT}, {DURATION}s, {FPS}fps")
-    
-    return video_data
+        # Convert to numpy array for moviepy
+        base_frame = np.array(bg)
+        
+        # Create zoom function for Ken Burns effect
+        def make_frame(t):
+            # Zoom from 1.0x to 1.15x over duration
+            zoom = 1.0 + (0.15 * t / DURATION)
+            
+            # Calculate crop for zoom effect
+            h, w = base_frame.shape[:2]
+            new_w = int(w / zoom)
+            new_h = int(h / zoom)
+            
+            # Center crop
+            x_start = (w - new_w) // 2
+            y_start = (h - new_h) // 2
+            
+            cropped = base_frame[y_start:y_start+new_h, x_start:x_start+new_w]
+            
+            # Resize back to original dimensions
+            pil_img = Image.fromarray(cropped)
+            pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
+            
+            return np.array(pil_img)
+        
+        # Create video clip using VideoClip with make_frame function
+        clip = VideoClip(make_frame, duration=DURATION)
+        clip = clip.with_fps(FPS)
+        
+        # Write to temporary file
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+            tmp_path = tmp.name
+        
+        print(f"Writing reel to: {tmp_path}")
+        clip.write_videofile(
+            tmp_path,
+            codec='libx264',
+            audio=False,
+            fps=FPS,
+            preset='ultrafast',
+            verbose=False,
+            logger=None
+        )
+        
+        # Read the video file
+        with open(tmp_path, 'rb') as f:
+            video_data = f.read()
+        
+        # Clean up
+        os.unlink(tmp_path)
+        clip.close()
+        
+        print(f"Reel generated: {REEL_WIDTH}x{REEL_HEIGHT}, {DURATION}s, {FPS}fps, size: {len(video_data)} bytes")
+        
+        return video_data
+        
+    except Exception as e:
+        print(f"ERROR generating reel: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 def send_email(image_data, caption, reel_data=None):
     """Sends email with image, caption, and optional reel."""
