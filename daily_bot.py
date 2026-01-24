@@ -422,123 +422,162 @@ def _try_browser_video(prompt, duration):
     return None
 
 def _browser_pixelbin(prompt):
-    """Automate Pixelbin.io free video generator."""
-    print("    Trying: Pixelbin.io...")
-    
-    from playwright.sync_api import sync_playwright
-    
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-        
-        try:
-            # Navigate to Pixelbin video generator
-            page.goto("https://www.pixelbin.io/tools/ai-video-generator", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=30000)
-            
-            # Find and fill the prompt textarea
-            prompt_input = page.locator('textarea[placeholder*="prompt"], textarea[name*="prompt"], textarea').first
-            prompt_input.fill(prompt)
-            
-            # Click generate button
-            generate_btn = page.locator('button:has-text("Generate"), button:has-text("Create"), button[type="submit"]').first
-            generate_btn.click()
-            
-            # Wait for video generation (up to 5 minutes)
-            print("    Waiting for video generation...")
-            
-            # Wait for video element or download button to appear
-            video_locator = page.locator('video source, a[download], a:has-text("Download")')
-            video_locator.wait_for(timeout=300000)  # 5 min timeout
-            
-            # Try to get video URL
-            video_url = None
-            
-            # Check for video source
-            video_src = page.locator('video source').first
-            if video_src.count() > 0:
-                video_url = video_src.get_attribute('src')
-            
-            # Check for download link
-            if not video_url:
-                download_link = page.locator('a[download], a:has-text("Download")').first
-                if download_link.count() > 0:
-                    video_url = download_link.get_attribute('href')
-            
-            if video_url:
-                # Download the video
-                if not video_url.startswith('http'):
-                    video_url = f"https://www.pixelbin.io{video_url}"
-                
-                import requests
-                response = requests.get(video_url, timeout=120)
-                if response.status_code == 200:
-                    print(f"    ✅ Pixelbin video: {len(response.content)//1024}KB")
-                    return response.content
-                    
-        except Exception as e:
-            print(f"    Pixelbin error: {str(e)[:60]}")
-        finally:
-            browser.close()
-    
+    """Automate Pixelbin.io free video generator - DISABLED (requires login)."""
+    print("    Pixelbin.io: Requires login, skipping...")
     return None
 
 def _browser_gizai(prompt):
     """Automate GizAI free video generator."""
-    print("    Trying: GizAI...")
+    print("    Trying: GizAI (giz.ai/video)...")
     
     from playwright.sync_api import sync_playwright
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
+        context = browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        )
         page = context.new_page()
         
         try:
             # Navigate to GizAI video generator
-            page.goto("https://giz.ai/tools/ai-video-generator", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=30000)
+            print("    Loading GizAI video page...")
+            page.goto("https://giz.ai/video", timeout=120000)
             
-            # Find and fill the prompt textarea
-            prompt_input = page.locator('textarea, input[type="text"]').first
+            # Wait for page to be fully loaded
+            page.wait_for_load_state("domcontentloaded", timeout=60000)
+            page.wait_for_timeout(5000)  # Extra wait for JS to initialize
+            
+            # Try to find prompt input with multiple selectors
+            print("    Looking for prompt input...")
+            input_selectors = [
+                'textarea[placeholder*="prompt"]',
+                'textarea[placeholder*="describe"]',
+                'textarea[placeholder*="Enter"]',
+                'input[placeholder*="prompt"]',
+                'textarea',
+                '[contenteditable="true"]',
+            ]
+            
+            prompt_input = None
+            for selector in input_selectors:
+                try:
+                    elem = page.locator(selector).first
+                    if elem.is_visible(timeout=3000):
+                        prompt_input = elem
+                        print(f"    Found input with selector: {selector[:30]}")
+                        break
+                except:
+                    continue
+            
+            if not prompt_input:
+                print("    Could not find prompt input field")
+                return None
+            
+            # Fill the prompt
             prompt_input.fill(prompt)
+            page.wait_for_timeout(1000)
             
-            # Click generate button
-            generate_btn = page.locator('button:has-text("Generate"), button:has-text("Create")').first
+            # Find and click generate button
+            print("    Looking for generate button...")
+            button_selectors = [
+                'button:has-text("Generate")',
+                'button:has-text("Create")',
+                'button:has-text("Make")',
+                'button[type="submit"]',
+                '[role="button"]:has-text("Generate")',
+            ]
+            
+            generate_btn = None
+            for selector in button_selectors:
+                try:
+                    elem = page.locator(selector).first
+                    if elem.is_visible(timeout=3000):
+                        generate_btn = elem
+                        print(f"    Found button with selector: {selector[:30]}")
+                        break
+                except:
+                    continue
+            
+            if not generate_btn:
+                print("    Could not find generate button")
+                return None
+            
             generate_btn.click()
+            print("    Clicked generate, waiting for video (up to 5 min)...")
             
-            # Wait for video generation
-            print("    Waiting for video generation...")
+            # Wait for video to be generated
+            # Look for video element, download link, or result container
+            result_selectors = [
+                'video',
+                'video source',
+                'a[download]',
+                'a:has-text("Download")',
+                '[class*="result"] video',
+                '[class*="output"] video',
+            ]
             
-            # Wait for video or download to appear
-            video_locator = page.locator('video, a[download], a:has-text("Download")')
-            video_locator.wait_for(timeout=300000)
+            video_element = None
+            for _ in range(60):  # Check every 5 seconds for 5 minutes
+                page.wait_for_timeout(5000)
+                for selector in result_selectors:
+                    try:
+                        elem = page.locator(selector).first
+                        if elem.is_visible(timeout=1000):
+                            video_element = elem
+                            break
+                    except:
+                        continue
+                if video_element:
+                    break
+                print("    Still waiting...")
+            
+            if not video_element:
+                print("    Timeout: No video appeared after 5 minutes")
+                return None
             
             # Get video URL
             video_url = None
-            
-            video_src = page.locator('video source').first
-            if video_src.count() > 0:
-                video_url = video_src.get_attribute('src')
+            try:
+                # Try video source first
+                video_src = page.locator('video source').first
+                if video_src.count() > 0:
+                    video_url = video_src.get_attribute('src')
+            except:
+                pass
             
             if not video_url:
-                download_link = page.locator('a[download]').first
-                if download_link.count() > 0:
+                try:
+                    # Try video element directly
+                    video_elem = page.locator('video').first
+                    video_url = video_elem.get_attribute('src')
+                except:
+                    pass
+            
+            if not video_url:
+                try:
+                    # Try download link
+                    download_link = page.locator('a[download]').first
                     video_url = download_link.get_attribute('href')
+                except:
+                    pass
             
             if video_url:
                 if not video_url.startswith('http'):
                     video_url = f"https://giz.ai{video_url}"
                 
+                print(f"    Found video URL: {video_url[:60]}...")
                 import requests
                 response = requests.get(video_url, timeout=120)
-                if response.status_code == 200:
+                if response.status_code == 200 and len(response.content) > 50000:
                     print(f"    ✅ GizAI video: {len(response.content)//1024}KB")
                     return response.content
+            
+            print("    Could not extract video URL")
                     
         except Exception as e:
-            print(f"    GizAI error: {str(e)[:60]}")
+            print(f"    GizAI error: {str(e)[:80]}")
         finally:
             browser.close()
     
