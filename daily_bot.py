@@ -266,184 +266,48 @@ def download_image(url):
     else:
         raise Exception(f"Failed to download image: {response.status_code}")
 
-def add_text_overlay(image_bytes, quote_text, brand_name):
-    """Add branded text overlay to image with beautiful gradient styling."""
-    print("Adding text overlay to image...")
+def process_for_instagram(image_bytes):
+    """Process image for Instagram - ensure exact 1:1 ratio (1080x1080), NO text overlay."""
+    print("Processing image for Instagram...")
     
     # Open image
-    img = Image.open(BytesIO(image_bytes)).convert("RGBA")
+    img = Image.open(BytesIO(image_bytes)).convert("RGB")
+    original_w, original_h = img.size
+    print(f"Original image: {original_w}x{original_h}")
     
-    # Instagram requires exact 1:1 square - center crop first, then resize
-    INSTAGRAM_SIZE = (1080, 1080)
+    # Instagram square post: 1080x1080 pixels (1:1 ratio)
+    INSTAGRAM_SIZE = 1080
     
-    # Center crop to square if not already square
-    w, h = img.size
-    if w != h:
-        # Crop to square from center
-        min_dim = min(w, h)
-        left = (w - min_dim) // 2
-        top = (h - min_dim) // 2
+    # Step 1: Center crop to perfect square
+    if original_w != original_h:
+        min_dim = min(original_w, original_h)
+        left = (original_w - min_dim) // 2
+        top = (original_h - min_dim) // 2
         right = left + min_dim
         bottom = top + min_dim
         img = img.crop((left, top, right, bottom))
-        print(f"Cropped from {w}x{h} to {min_dim}x{min_dim}")
+        print(f"Center cropped to: {img.size[0]}x{img.size[1]}")
     
-    # Resize to exact Instagram dimensions
-    if img.size != INSTAGRAM_SIZE:
-        img = img.resize(INSTAGRAM_SIZE, Image.Resampling.LANCZOS)
-        print(f"Resized to {INSTAGRAM_SIZE[0]}x{INSTAGRAM_SIZE[1]}")
+    # Step 2: Resize to exactly 1080x1080
+    img = img.resize((INSTAGRAM_SIZE, INSTAGRAM_SIZE), Image.Resampling.LANCZOS)
+    print(f"Resized to: {img.size[0]}x{img.size[1]}")
     
-    width, height = img.size
+    # Step 3: Verify and save
+    final_w, final_h = img.size
     
-    # Create overlay layer
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
+    if final_w != INSTAGRAM_SIZE or final_h != INSTAGRAM_SIZE:
+        print(f"ERROR: Expected {INSTAGRAM_SIZE}x{INSTAGRAM_SIZE}, got {final_w}x{final_h}")
+        # Force create correct size
+        perfect = Image.new("RGB", (INSTAGRAM_SIZE, INSTAGRAM_SIZE), (0, 0, 0))
+        perfect.paste(img, (0, 0))
+        img = perfect
     
-    # Font sizes - larger for better visibility
-    quote_size = 42
-    brand_size = 32
-    website_size = 24
-    
-    # Try to get fonts
-    try:
-        font_paths = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",  # Arial Bold
-            "C:/Windows/Fonts/arial.ttf",
-            "/System/Library/Fonts/Helvetica.ttc",
-        ]
-        quote_font = None
-        
-        for font_path in font_paths:
-            try:
-                quote_font = ImageFont.truetype(font_path, size=quote_size)
-                brand_font = ImageFont.truetype(font_path, size=brand_size)
-                website_font = ImageFont.truetype(font_path, size=website_size)
-                break
-            except:
-                continue
-        
-        if not quote_font:
-            quote_font = ImageFont.load_default()
-            brand_font = quote_font
-            website_font = quote_font
-    except:
-        quote_font = ImageFont.load_default()
-        brand_font = quote_font
-        website_font = quote_font
-    
-    # Prepare quote text - limit to 2 lines
-    max_chars_per_line = 32
-    words = quote_text.split()
-    lines = []
-    current_line = ""
-    for word in words:
-        if len(current_line) + len(word) + 1 <= max_chars_per_line:
-            current_line = f"{current_line} {word}".strip()
-        else:
-            if current_line:
-                lines.append(current_line)
-            current_line = word
-    if current_line:
-        lines.append(current_line)
-    
-    lines = lines[:2]
-    if len(lines) == 2 and len(" ".join(lines)) < len(quote_text):
-        lines[1] = lines[1][:max_chars_per_line-3] + "..."
-    
-    wrapped_quote = "\n".join(lines)
-    num_lines = len(lines)
-    
-    # Calculate dimensions
-    line_height = quote_size + 12
-    quote_height = num_lines * line_height
-    brand_height = brand_size + 10
-    website_height = website_size + 10
-    
-    padding = 40
-    vertical_spacing = 20
-    
-    total_content_height = quote_height + vertical_spacing + brand_height + vertical_spacing + website_height + (padding * 2)
-    bg_height = max(total_content_height, 220)
-    bg_top = height - bg_height
-    
-    # Create beautiful gradient background (fade from transparent to dark)
-    for y in range(bg_height):
-        # Calculate opacity - starts transparent, becomes more opaque at bottom
-        progress = y / bg_height
-        opacity = int(progress * progress * 200)  # Quadratic for smooth fade
-        draw.line([(0, bg_top + y), (width, bg_top + y)], fill=(20, 10, 40, opacity))
-    
-    # Add a subtle highlight line at top of gradient
-    draw.line([(0, bg_top), (width, bg_top)], fill=(255, 215, 0, 80), width=2)
-    
-    # Position elements
-    current_y = bg_top + padding + 10
-    
-    # Draw quote text with outline effect for better visibility
-    def draw_text_with_outline(draw, pos, text, font, fill_color, outline_color, outline_width=3):
-        x, y = pos
-        # Draw outline
-        for dx in range(-outline_width, outline_width + 1):
-            for dy in range(-outline_width, outline_width + 1):
-                if dx != 0 or dy != 0:
-                    draw.multiline_text((x + dx, y + dy), text, font=font, fill=outline_color, align="left")
-        # Draw main text
-        draw.multiline_text(pos, text, font=font, fill=fill_color, align="left")
-    
-    # Quote text with dark outline
-    draw_text_with_outline(
-        draw,
-        (padding, current_y),
-        wrapped_quote,
-        quote_font,
-        (255, 255, 255, 255),  # White text
-        (0, 0, 0, 180),  # Dark outline
-        2
-    )
-    current_y += quote_height + vertical_spacing
-    
-    # Brand name with golden glow effect
-    brand_text = f"-- {brand_name}"
-    brand_bbox = draw.textbbox((0, 0), brand_text, font=brand_font)
-    brand_width = brand_bbox[2] - brand_bbox[0]
-    brand_x = width - brand_width - padding
-    
-    # Glow effect for brand
-    for offset in range(4, 0, -1):
-        glow_alpha = 50 - (offset * 10)
-        for dx in range(-offset, offset + 1):
-            for dy in range(-offset, offset + 1):
-                draw.text((brand_x + dx, current_y + dy), brand_text, font=brand_font, fill=(255, 215, 0, glow_alpha))
-    
-    # Main brand text
-    draw.text((brand_x, current_y), brand_text, font=brand_font, fill=(255, 215, 0, 255))
-    current_y += brand_height + vertical_spacing
-    
-    # Website with subtle styling
-    website_text = "astroboli.com"
-    website_bbox = draw.textbbox((0, 0), website_text, font=website_font)
-    website_width = website_bbox[2] - website_bbox[0]
-    website_x = width - website_width - padding
-    
-    # Outline for website
-    for dx in range(-1, 2):
-        for dy in range(-1, 2):
-            if dx != 0 or dy != 0:
-                draw.text((website_x + dx, current_y + dy), website_text, font=website_font, fill=(0, 0, 0, 150))
-    draw.text((website_x, current_y), website_text, font=website_font, fill=(200, 200, 220, 255))
-    
-    # Composite overlay
-    result = Image.alpha_composite(img, overlay)
-    
-    # Ensure final output is exactly 1080x1080
-    if result.size != INSTAGRAM_SIZE:
-        result = result.resize(INSTAGRAM_SIZE, Image.Resampling.LANCZOS)
-    
-    # Convert to high-quality JPEG
+    # Save as high-quality JPEG
     output = BytesIO()
-    result.convert("RGB").save(output, format="JPEG", quality=98)
+    img.save(output, format="JPEG", quality=98, optimize=True)
     output.seek(0)
+    
+    print(f"Final output: {INSTAGRAM_SIZE}x{INSTAGRAM_SIZE} (1:1 ratio) - ready for Instagram")
     
     return output.getvalue()
 
@@ -553,24 +417,11 @@ def main():
         # 3. Download Image
         image_data = download_image(image_url)
         
-        # 4. Add text overlay with inspirational quote and brand
-        # Extract short quote from caption (first line/sentence)
-        caption_lines = caption.split('\n')
-        short_quote = caption_lines[0] if caption_lines else "Embrace the cosmic energy"
-        # Clean up the quote - remove hashtags and truncate if too long
-        short_quote = short_quote.split('#')[0].strip()
-        if len(short_quote) > 90:
-            short_quote = short_quote[:87] + "..."
+        # 4. Process image for Instagram (1:1 ratio, NO text overlay)
+        processed_image = process_for_instagram(image_data)
         
-        # Get brand name from the prompt variations used earlier
-        brand_variations = ["Astro Boli", "AstroBoli AI", "Astro AI", "AstroBoli", "Astro Boli AI"]
-        brand_name = random.choice(brand_variations)
-        
-        # Apply text overlay to image
-        image_with_text = add_text_overlay(image_data, short_quote, brand_name)
-        
-        # 5. Send Email (with text-overlaid image)
-        send_email(image_with_text, caption)
+        # 5. Send Email
+        send_email(processed_image, caption)
         
         print("\n✨ Done! Check your email for today's post.")
         
