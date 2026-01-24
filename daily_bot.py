@@ -1110,8 +1110,8 @@ def generate_reel(image_bytes, caption_text, brand_name):
         traceback.print_exc()
         return None
 
-def send_email(image_data, caption, reel_data=None):
-    """Sends email with image, caption, and optional reel."""
+def send_email(image_data, caption, reel_data=None, video_prompt=None):
+    """Sends email with image, caption, and optional reel. If reel failed, includes video_prompt for manual creation."""
     print("Sending email...")
     
     # Create message
@@ -1123,12 +1123,32 @@ def send_email(image_data, caption, reel_data=None):
     msg['Subject'] = 'Your Daily Astroboli Post & Reel are Ready!' if has_reel else 'Your Daily Astroboli Post is Ready!'
     
     # Email body
-    reel_section = """
+    if has_reel:
+        reel_section = """
     <div style="background: #E6FFFA; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #38B2AC;">
         <h3 style="color: #234E52; margin-top: 0;">🎬 Instagram Reel Attached!</h3>
         <p style="color: #285E61;">A 10-second animated reel is also attached. Upload it as a Reel for maximum engagement!</p>
     </div>
-    """ if has_reel else ""
+    """
+    elif video_prompt:
+        reel_section = f"""
+    <div style="background: #FED7D7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #E53E3E;">
+        <h3 style="color: #742A2A; margin-top: 0;">⚠️ Video Generation Failed - Create Manually</h3>
+        <p style="color: #822727;">Automated video generation failed. Use this prompt to create a video manually:</p>
+        <div style="background: #FFF5F5; padding: 10px; border-radius: 4px; margin-top: 10px; font-family: monospace; word-break: break-word;">
+            <strong>Video Prompt:</strong><br>
+            {video_prompt}
+        </div>
+        <p style="color: #822727; margin-top: 10px;"><strong>Free Video Creation Sites:</strong></p>
+        <ul style="color: #822727;">
+            <li><a href="https://giz.ai/video" style="color: #C53030;">GizAI Video Generator</a></li>
+            <li><a href="https://pika.art" style="color: #C53030;">Pika Labs</a></li>
+            <li><a href="https://lumalabs.ai/dream-machine" style="color: #C53030;">Luma Dream Machine</a></li>
+        </ul>
+    </div>
+    """
+    else:
+        reel_section = ""
     
     body = f"""
 <html>
@@ -1242,10 +1262,14 @@ def main():
         # 5. Generate Instagram Reel (animated video from image)
         brand_variations = ["Astro Boli", "AstroBoli AI", "Astro AI", "AstroBoli", "Astro Boli AI"]
         brand_name = random.choice(brand_variations)
+        
+        # Video prompt for manual creation if automation fails
+        video_prompt = "Mystical cosmic astrology scene, swirling galaxies, zodiac constellations, ethereal purple and gold colors, glowing stars, nebula clouds, magical celestial energy, cinematic, 4K quality, slow motion particles, dreamy atmosphere"
+        
         reel_data = generate_reel(image_data, caption, brand_name)
         
-        # 6. Send Email with post image and reel
-        send_email(processed_image, caption, reel_data)
+        # 6. Send Email with post image and reel (or video prompt if reel failed)
+        send_email(processed_image, caption, reel_data, video_prompt=video_prompt if reel_data is None else None)
         
         print("\n✨ Done! Check your email for today's post and reel.")
         
