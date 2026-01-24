@@ -1264,7 +1264,7 @@ def main():
         brand_name = random.choice(brand_variations)
         
         # Video prompt for manual creation if automation fails
-        video_prompt = "Mystical cosmic astrology scene, swirling galaxies, zodiac constellations, ethereal purple and gold colors, glowing stars, nebula clouds, magical celestial energy, cinematic, 4K quality, slow motion particles, dreamy atmosphere"
+        video_prompt = "Mystical cosmic astrology scene, swirling galaxies, zodiac constellations, ethereal purple and gold colors, glowing stars, nebula clouds, magical celestial energy, cinematic, 4K quality, slow motion particles, dreamy atmosphere. FORMAT: Instagram Reels vertical 9:16 aspect ratio, 10-15 seconds duration, 1080x1920 resolution."
         
         reel_data = generate_reel(image_data, caption, brand_name)
         
