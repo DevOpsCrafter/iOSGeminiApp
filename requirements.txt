@@ -5,3 +5,4 @@ Pillow
 moviepy
 edge-tts
 gradio_client
+playwright

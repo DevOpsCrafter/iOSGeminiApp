@@ -354,14 +354,16 @@ async def generate_voiceover(text, output_path):
 def download_ai_video(prompt, duration=8):
     """
     Download AI-generated video from multiple providers.
-    Prioritizes high-quality authenticated APIs (Fal.ai, Luma, Replicate).
-    Falls back to free unauthenticated options if API keys not configured.
+    Priority: Browser automation (free) > API keys > Free fallbacks
     """
     print(f"🎥 Generating AI video: {prompt[:60]}...")
     
-    # Prioritize authenticated high-quality APIs
     providers = []
     
+    # 1. Browser automation (100% free, best option)
+    providers.append(_try_browser_video)
+    
+    # 2. Authenticated APIs (if configured)
     if FAL_KEY:
         providers.append(_try_fal_video)
     if LUMA_API_KEY:
@@ -369,7 +371,7 @@ def download_ai_video(prompt, duration=8):
     if REPLICATE_API_TOKEN:
         providers.append(_try_replicate_video)
     
-    # Add free fallbacks
+    # 3. Free API fallbacks
     providers.extend([
         _try_huggingface_video,
         _try_modelslab_video,
@@ -387,6 +389,159 @@ def download_ai_video(prompt, duration=8):
             continue
     
     print("❌ All video providers failed")
+    return None
+
+def _try_browser_video(prompt, duration):
+    """
+    Generate video using browser automation on free video generator websites.
+    Uses Playwright to automate Pixelbin.io or GizAI which require NO signup.
+    """
+    print("  Trying: Browser automation (free web UIs)...")
+    
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("    ⚠️ Playwright not installed")
+        return None
+    
+    # Try multiple free video generator sites
+    sites = [
+        _browser_pixelbin,
+        _browser_gizai,
+    ]
+    
+    for site_func in sites:
+        try:
+            result = site_func(prompt)
+            if result and len(result) > 50000:  # Valid video > 50KB
+                return result
+        except Exception as e:
+            print(f"    Site failed: {str(e)[:50]}")
+            continue
+    
+    return None
+
+def _browser_pixelbin(prompt):
+    """Automate Pixelbin.io free video generator."""
+    print("    Trying: Pixelbin.io...")
+    
+    from playwright.sync_api import sync_playwright
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+        
+        try:
+            # Navigate to Pixelbin video generator
+            page.goto("https://www.pixelbin.io/tools/ai-video-generator", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            
+            # Find and fill the prompt textarea
+            prompt_input = page.locator('textarea[placeholder*="prompt"], textarea[name*="prompt"], textarea').first
+            prompt_input.fill(prompt)
+            
+            # Click generate button
+            generate_btn = page.locator('button:has-text("Generate"), button:has-text("Create"), button[type="submit"]').first
+            generate_btn.click()
+            
+            # Wait for video generation (up to 5 minutes)
+            print("    Waiting for video generation...")
+            
+            # Wait for video element or download button to appear
+            video_locator = page.locator('video source, a[download], a:has-text("Download")')
+            video_locator.wait_for(timeout=300000)  # 5 min timeout
+            
+            # Try to get video URL
+            video_url = None
+            
+            # Check for video source
+            video_src = page.locator('video source').first
+            if video_src.count() > 0:
+                video_url = video_src.get_attribute('src')
+            
+            # Check for download link
+            if not video_url:
+                download_link = page.locator('a[download], a:has-text("Download")').first
+                if download_link.count() > 0:
+                    video_url = download_link.get_attribute('href')
+            
+            if video_url:
+                # Download the video
+                if not video_url.startswith('http'):
+                    video_url = f"https://www.pixelbin.io{video_url}"
+                
+                import requests
+                response = requests.get(video_url, timeout=120)
+                if response.status_code == 200:
+                    print(f"    ✅ Pixelbin video: {len(response.content)//1024}KB")
+                    return response.content
+                    
+        except Exception as e:
+            print(f"    Pixelbin error: {str(e)[:60]}")
+        finally:
+            browser.close()
+    
+    return None
+
+def _browser_gizai(prompt):
+    """Automate GizAI free video generator."""
+    print("    Trying: GizAI...")
+    
+    from playwright.sync_api import sync_playwright
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+        
+        try:
+            # Navigate to GizAI video generator
+            page.goto("https://giz.ai/tools/ai-video-generator", timeout=60000)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            
+            # Find and fill the prompt textarea
+            prompt_input = page.locator('textarea, input[type="text"]').first
+            prompt_input.fill(prompt)
+            
+            # Click generate button
+            generate_btn = page.locator('button:has-text("Generate"), button:has-text("Create")').first
+            generate_btn.click()
+            
+            # Wait for video generation
+            print("    Waiting for video generation...")
+            
+            # Wait for video or download to appear
+            video_locator = page.locator('video, a[download], a:has-text("Download")')
+            video_locator.wait_for(timeout=300000)
+            
+            # Get video URL
+            video_url = None
+            
+            video_src = page.locator('video source').first
+            if video_src.count() > 0:
+                video_url = video_src.get_attribute('src')
+            
+            if not video_url:
+                download_link = page.locator('a[download]').first
+                if download_link.count() > 0:
+                    video_url = download_link.get_attribute('href')
+            
+            if video_url:
+                if not video_url.startswith('http'):
+                    video_url = f"https://giz.ai{video_url}"
+                
+                import requests
+                response = requests.get(video_url, timeout=120)
+                if response.status_code == 200:
+                    print(f"    ✅ GizAI video: {len(response.content)//1024}KB")
+                    return response.content
+                    
+        except Exception as e:
+            print(f"    GizAI error: {str(e)[:60]}")
+        finally:
+            browser.close()
+    
     return None
 
 def _try_fal_video(prompt, duration):
