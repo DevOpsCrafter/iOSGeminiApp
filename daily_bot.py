@@ -317,22 +317,65 @@ def process_for_instagram(image_bytes):
     return output.getvalue()
 
 async def generate_voiceover(text, output_path):
-    """Generate professional AI voiceover using edge-tts."""
+    """Generate highly natural AI voiceover using edge-tts with best voices."""
     try:
         import edge_tts
         
-        # Use natural-sounding Microsoft neural voice
-        voice = "en-US-AriaNeural"  # Natural female voice, great for astrology
+        # Use the most natural-sounding Microsoft MultilingualNeural voices (2024)
+        # These have more human-like qualities with natural pauses and intonation
+        voice = "en-US-AvaMultilingualNeural"  # Bright, engaging, very natural
         
-        # Create the communicate object
-        communicate = edge_tts.Communicate(text, voice)
+        # Alternative great voices:
+        # "en-US-EmmaMultilingualNeural" - Friendly, light-hearted
+        # "en-US-JennyNeural" - Warm, mature
+        # "en-GB-SoniaNeural" - British, sophisticated
+        
+        # Create the communicate object with natural speech rate
+        # Slightly slower for mystical/calming effect
+        communicate = edge_tts.Communicate(
+            text, 
+            voice,
+            rate="-5%",  # Slightly slower for dramatic effect
+            pitch="+0Hz"  # Natural pitch
+        )
         await communicate.save(output_path)
         
-        print(f"Voiceover generated: {output_path}")
+        print(f"✨ Voiceover generated with {voice}")
         return True
     except Exception as e:
         print(f"Error generating voiceover: {e}")
         return False
+
+def download_ai_video(prompt, duration=8):
+    """Download AI-generated video from Pollinations.ai."""
+    print(f"🎥 Generating AI video: {prompt[:50]}...")
+    
+    try:
+        # Pollinations.ai unified API video endpoint
+        encoded_prompt = urllib.parse.quote(prompt)
+        seed = random.randint(1, 1000000)
+        
+        # Correct URL format: gen.pollinations.ai/video/{prompt}?model=veo
+        video_url = f"https://gen.pollinations.ai/video/{encoded_prompt}?model=veo&seed={seed}"
+        
+        print(f"Video URL: {video_url[:80]}...")
+        
+        # Download video (may take a while as it's generated on-demand)
+        response = requests.get(video_url, timeout=180)  # 3 minute timeout
+        
+        if response.status_code == 200 and len(response.content) > 10000:  # Minimum size check
+            print(f"✅ AI video downloaded: {len(response.content)//1024}KB")
+            return response.content
+        else:
+            print(f"⚠️ Video generation returned status: {response.status_code}, size: {len(response.content)}")
+            return None
+            
+    except requests.exceptions.Timeout:
+        print("⚠️ Video generation timed out (>3 min)")
+        return None
+    except Exception as e:
+        print(f"⚠️ Video generation error: {e}")
+        return None
 
 def generate_reel(image_bytes, caption_text, brand_name):
     """Generate a professional Instagram Reel with AI voiceover and video effects."""
@@ -384,91 +427,122 @@ def generate_reel(image_bytes, caption_text, brand_name):
         else:
             DURATION = 10
         
-        print(f"Reel duration: {DURATION:.1f}s")
+        print(f"Reel duration target: {DURATION:.1f}s")
         
-        # Open and prepare image
-        img = Image.open(BytesIO(image_bytes)).convert("RGB")
+        # ===== TRY AI VIDEO GENERATION FIRST =====
+        # Create a cosmic video prompt for Pollinations.ai
+        video_prompt = f"Mystical cosmic astrology scene, swirling galaxies, zodiac constellations, ethereal purple and gold colors, glowing stars, nebula clouds, magical celestial energy, cinematic, 4K quality, slow motion particles, dreamy atmosphere"
         
-        # Create portrait canvas with gradient background
-        bg = Image.new("RGB", (REEL_WIDTH, REEL_HEIGHT), (10, 5, 25))
+        # Try to download AI-generated video from Pollinations.ai
+        ai_video_data = download_ai_video(video_prompt, duration=min(10, int(DURATION)))
         
-        # Add subtle gradient
-        draw = ImageDraw.Draw(bg)
-        for y in range(REEL_HEIGHT):
-            # Gradient from dark purple at top to darker at bottom
-            progress = y / REEL_HEIGHT
-            r = int(15 - 10 * progress)
-            g = int(5 - 3 * progress)
-            b = int(35 - 15 * progress)
-            draw.line([(0, y), (REEL_WIDTH, y)], fill=(max(0, r), max(0, g), max(0, b)))
+        use_ai_video = ai_video_data is not None
         
-        # Resize image to fit width with some padding
-        img_width = int(REEL_WIDTH * 0.9)
-        aspect = img.size[0] / img.size[1]
-        img_height = int(img_width / aspect)
-        img_resized = img.resize((img_width, img_height), Image.Resampling.LANCZOS)
-        
-        # Center the image in the frame (slightly above center for text below)
-        x_offset = (REEL_WIDTH - img_width) // 2
-        y_offset = int(REEL_HEIGHT * 0.15)
-        bg.paste(img_resized, (x_offset, y_offset))
-        
-        # Add brand watermark at bottom
-        try:
-            font_paths = [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                "C:/Windows/Fonts/arialbd.ttf",
-                "C:/Windows/Fonts/arial.ttf",
-            ]
-            font = None
-            for fp in font_paths:
-                try:
-                    font = ImageFont.truetype(fp, 36)
-                    break
-                except:
-                    continue
-            if font:
-                draw = ImageDraw.Draw(bg)
-                text = brand_name.upper()
-                bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = bbox[2] - bbox[0]
-                text_x = (REEL_WIDTH - text_width) // 2
-                text_y = REEL_HEIGHT - 100
-                # Shadow
-                draw.text((text_x + 2, text_y + 2), text, font=font, fill=(0, 0, 0))
-                # Gold text
-                draw.text((text_x, text_y), text, font=font, fill=(255, 215, 0))
-        except:
-            pass
-        
-        base_frame = np.array(bg)
-        
-        # Create smooth zoom effect
-        def make_frame(t):
-            progress = t / DURATION
-            # Smooth zoom from 1.0 to 1.2 with easing
-            eased = progress * progress * (3 - 2 * progress)  # Smooth step
-            zoom = 1.0 + (0.2 * eased)
+        if use_ai_video:
+            print("✅ Using AI-generated video from Pollinations.ai")
+            # Save AI video to temp file
+            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as vid_tmp:
+                vid_tmp.write(ai_video_data)
+                ai_video_path = vid_tmp.name
             
-            h, w = base_frame.shape[:2]
-            new_w = int(w / zoom)
-            new_h = int(h / zoom)
+            # Load AI video as clip
+            from moviepy.video.io.VideoFileClip import VideoFileClip
+            video_clip = VideoFileClip(ai_video_path)
             
-            x_start = (w - new_w) // 2
-            y_start = (h - new_h) // 2
+            # Resize to Instagram Reels dimensions (9:16)
+            video_clip = video_clip.resized((REEL_WIDTH, REEL_HEIGHT))
             
-            cropped = base_frame[y_start:y_start+new_h, x_start:x_start+new_w]
-            
-            pil_img = Image.fromarray(cropped)
-            pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
-            
-            return np.array(pil_img)
+            # Loop or trim to match audio duration
+            if video_clip.duration < DURATION:
+                # Loop the video
+                loops_needed = int(DURATION / video_clip.duration) + 1
+                from moviepy.video.fx.loop import loop
+                video_clip = loop(video_clip, n=loops_needed).with_duration(DURATION)
+            else:
+                video_clip = video_clip.subclipped(0, DURATION)
+                
+        else:
+            print("⚠️ AI video unavailable, using animated image fallback")
+            # ===== FALLBACK: ANIMATED IMAGE =====
+            # Open and prepare image
+            img = Image.open(BytesIO(image_bytes)).convert("RGB")
         
-        # Create video clip
-        video_clip = VideoClip(make_frame, duration=DURATION)
-        video_clip = video_clip.with_fps(FPS)
+            # Create portrait canvas with gradient background
+            bg = Image.new("RGB", (REEL_WIDTH, REEL_HEIGHT), (10, 5, 25))
+            
+            # Add subtle gradient
+            draw = ImageDraw.Draw(bg)
+            for y in range(REEL_HEIGHT):
+                progress = y / REEL_HEIGHT
+                r = int(15 - 10 * progress)
+                g = int(5 - 3 * progress)
+                b = int(35 - 15 * progress)
+                draw.line([(0, y), (REEL_WIDTH, y)], fill=(max(0, r), max(0, g), max(0, b)))
+            
+            # Resize image to fit width with some padding
+            img_width = int(REEL_WIDTH * 0.9)
+            aspect = img.size[0] / img.size[1]
+            img_height = int(img_width / aspect)
+            img_resized = img.resize((img_width, img_height), Image.Resampling.LANCZOS)
+            
+            # Center the image in the frame
+            x_offset = (REEL_WIDTH - img_width) // 2
+            y_offset = int(REEL_HEIGHT * 0.15)
+            bg.paste(img_resized, (x_offset, y_offset))
+            
+            # Add brand watermark at bottom
+            try:
+                font_paths = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                    "C:/Windows/Fonts/arialbd.ttf",
+                    "C:/Windows/Fonts/arial.ttf",
+                ]
+                font = None
+                for fp in font_paths:
+                    try:
+                        font = ImageFont.truetype(fp, 36)
+                        break
+                    except:
+                        continue
+                if font:
+                    draw = ImageDraw.Draw(bg)
+                    text = brand_name.upper()
+                    bbox = draw.textbbox((0, 0), text, font=font)
+                    text_width = bbox[2] - bbox[0]
+                    text_x = (REEL_WIDTH - text_width) // 2
+                    text_y = REEL_HEIGHT - 100
+                    draw.text((text_x + 2, text_y + 2), text, font=font, fill=(0, 0, 0))
+                    draw.text((text_x, text_y), text, font=font, fill=(255, 215, 0))
+            except:
+                pass
+            
+            base_frame = np.array(bg)
+            
+            # Create smooth zoom effect
+            def make_frame(t):
+                progress = t / DURATION
+                eased = progress * progress * (3 - 2 * progress)
+                zoom = 1.0 + (0.2 * eased)
+                
+                h, w = base_frame.shape[:2]
+                new_w = int(w / zoom)
+                new_h = int(h / zoom)
+                
+                x_start = (w - new_w) // 2
+                y_start = (h - new_h) // 2
+                
+                cropped = base_frame[y_start:y_start+new_h, x_start:x_start+new_w]
+                
+                pil_img = Image.fromarray(cropped)
+                pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
+                
+                return np.array(pil_img)
+            
+            # Create video clip from animated image
+            video_clip = VideoClip(make_frame, duration=DURATION)
+            video_clip = video_clip.with_fps(FPS)
         
-        # Add audio if available
+        # ===== ADD AUDIO AND RENDER =====
         if audio_path:
             audio_clip = AudioFileClip(audio_path)
             video_clip = video_clip.with_audio(audio_clip)
