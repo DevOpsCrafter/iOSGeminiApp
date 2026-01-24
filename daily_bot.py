@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from io import BytesIO
 import tempfile
 import numpy as np
+import asyncio
 
 # Load secrets from .env file if present (Local dev)
 load_dotenv()
@@ -315,12 +316,32 @@ def process_for_instagram(image_bytes):
     
     return output.getvalue()
 
+async def generate_voiceover(text, output_path):
+    """Generate professional AI voiceover using edge-tts."""
+    try:
+        import edge_tts
+        
+        # Use natural-sounding Microsoft neural voice
+        voice = "en-US-AriaNeural"  # Natural female voice, great for astrology
+        
+        # Create the communicate object
+        communicate = edge_tts.Communicate(text, voice)
+        await communicate.save(output_path)
+        
+        print(f"Voiceover generated: {output_path}")
+        return True
+    except Exception as e:
+        print(f"Error generating voiceover: {e}")
+        return False
+
 def generate_reel(image_bytes, caption_text, brand_name):
-    """Generate an Instagram Reel from a static image with zoom animation."""
-    print("Generating Instagram Reel...")
+    """Generate a professional Instagram Reel with AI voiceover and video effects."""
+    print("🎬 Generating Professional Instagram Reel...")
     
     try:
         from moviepy.video.VideoClip import VideoClip
+        from moviepy.audio.io.AudioFileClip import AudioFileClip
+        from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
     except ImportError:
         print("WARNING: moviepy not available, skipping reel generation")
         return None
@@ -329,76 +350,154 @@ def generate_reel(image_bytes, caption_text, brand_name):
         # Instagram Reels specs: 9:16 aspect ratio, 1080x1920
         REEL_WIDTH = 1080
         REEL_HEIGHT = 1920
-        DURATION = 10  # 10 seconds
-        FPS = 24  # Lower fps for smaller file
+        FPS = 24
         
-        # Open image
+        # Extract a short, punchy script from caption for voiceover
+        # Remove hashtags and website links for cleaner voiceover
+        script_lines = caption_text.split('\n')
+        script = script_lines[0] if script_lines else "Embrace the cosmic energy today"
+        script = script.split('#')[0].strip()
+        script = script.replace('https://astroboli.com', '').replace('astroboli.com', '')
+        script = script.replace('Visit', '').strip()
+        
+        # Add brand intro for professionalism
+        full_script = f"Welcome to {brand_name}. {script}. Visit astroboli dot com for your complete reading."
+        
+        print(f"Script: {full_script[:80]}...")
+        
+        # Generate voiceover
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as audio_tmp:
+            audio_path = audio_tmp.name
+        
+        # Run async voiceover generation
+        voiceover_success = asyncio.run(generate_voiceover(full_script, audio_path))
+        
+        if not voiceover_success or not os.path.exists(audio_path):
+            print("Voiceover generation failed, continuing without audio")
+            audio_path = None
+        
+        # Get audio duration to match video length
+        if audio_path:
+            audio_clip = AudioFileClip(audio_path)
+            DURATION = audio_clip.duration + 1  # Add 1 second buffer
+            audio_clip.close()
+        else:
+            DURATION = 10
+        
+        print(f"Reel duration: {DURATION:.1f}s")
+        
+        # Open and prepare image
         img = Image.open(BytesIO(image_bytes)).convert("RGB")
         
-        # Create portrait version - expand square to portrait with gradient background
-        bg = Image.new("RGB", (REEL_WIDTH, REEL_HEIGHT), (15, 10, 30))  # Dark cosmic background
+        # Create portrait canvas with gradient background
+        bg = Image.new("RGB", (REEL_WIDTH, REEL_HEIGHT), (10, 5, 25))
         
-        # Resize image to fit width
+        # Add subtle gradient
+        draw = ImageDraw.Draw(bg)
+        for y in range(REEL_HEIGHT):
+            # Gradient from dark purple at top to darker at bottom
+            progress = y / REEL_HEIGHT
+            r = int(15 - 10 * progress)
+            g = int(5 - 3 * progress)
+            b = int(35 - 15 * progress)
+            draw.line([(0, y), (REEL_WIDTH, y)], fill=(max(0, r), max(0, g), max(0, b)))
+        
+        # Resize image to fit width with some padding
+        img_width = int(REEL_WIDTH * 0.9)
         aspect = img.size[0] / img.size[1]
-        new_width = REEL_WIDTH
-        new_height = int(new_width / aspect)
-        img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        img_height = int(img_width / aspect)
+        img_resized = img.resize((img_width, img_height), Image.Resampling.LANCZOS)
         
-        # Center the image vertically
-        y_offset = (REEL_HEIGHT - new_height) // 2
-        bg.paste(img_resized, (0, y_offset))
+        # Center the image in the frame (slightly above center for text below)
+        x_offset = (REEL_WIDTH - img_width) // 2
+        y_offset = int(REEL_HEIGHT * 0.15)
+        bg.paste(img_resized, (x_offset, y_offset))
         
-        # Convert to numpy array for moviepy
+        # Add brand watermark at bottom
+        try:
+            font_paths = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "C:/Windows/Fonts/arialbd.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+            ]
+            font = None
+            for fp in font_paths:
+                try:
+                    font = ImageFont.truetype(fp, 36)
+                    break
+                except:
+                    continue
+            if font:
+                draw = ImageDraw.Draw(bg)
+                text = brand_name.upper()
+                bbox = draw.textbbox((0, 0), text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_x = (REEL_WIDTH - text_width) // 2
+                text_y = REEL_HEIGHT - 100
+                # Shadow
+                draw.text((text_x + 2, text_y + 2), text, font=font, fill=(0, 0, 0))
+                # Gold text
+                draw.text((text_x, text_y), text, font=font, fill=(255, 215, 0))
+        except:
+            pass
+        
         base_frame = np.array(bg)
         
-        # Create zoom function for Ken Burns effect
+        # Create smooth zoom effect
         def make_frame(t):
-            # Zoom from 1.0x to 1.15x over duration
-            zoom = 1.0 + (0.15 * t / DURATION)
+            progress = t / DURATION
+            # Smooth zoom from 1.0 to 1.2 with easing
+            eased = progress * progress * (3 - 2 * progress)  # Smooth step
+            zoom = 1.0 + (0.2 * eased)
             
-            # Calculate crop for zoom effect
             h, w = base_frame.shape[:2]
             new_w = int(w / zoom)
             new_h = int(h / zoom)
             
-            # Center crop
             x_start = (w - new_w) // 2
             y_start = (h - new_h) // 2
             
             cropped = base_frame[y_start:y_start+new_h, x_start:x_start+new_w]
             
-            # Resize back to original dimensions
             pil_img = Image.fromarray(cropped)
             pil_img = pil_img.resize((w, h), Image.Resampling.LANCZOS)
             
             return np.array(pil_img)
         
-        # Create video clip using VideoClip with make_frame function
-        clip = VideoClip(make_frame, duration=DURATION)
-        clip = clip.with_fps(FPS)
+        # Create video clip
+        video_clip = VideoClip(make_frame, duration=DURATION)
+        video_clip = video_clip.with_fps(FPS)
         
-        # Write to temporary file
+        # Add audio if available
+        if audio_path:
+            audio_clip = AudioFileClip(audio_path)
+            video_clip = video_clip.with_audio(audio_clip)
+            print("Audio attached to video")
+        
+        # Write final video
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-            tmp_path = tmp.name
+            output_path = tmp.name
         
-        print(f"Writing reel to: {tmp_path}")
-        clip.write_videofile(
-            tmp_path,
+        print(f"Rendering reel to: {output_path}")
+        video_clip.write_videofile(
+            output_path,
             codec='libx264',
-            audio=False,
+            audio_codec='aac' if audio_path else None,
             fps=FPS,
-            preset='ultrafast'
+            preset='medium'
         )
         
-        # Read the video file
-        with open(tmp_path, 'rb') as f:
+        # Read the final video
+        with open(output_path, 'rb') as f:
             video_data = f.read()
         
-        # Clean up
-        os.unlink(tmp_path)
-        clip.close()
+        # Cleanup
+        video_clip.close()
+        os.unlink(output_path)
+        if audio_path and os.path.exists(audio_path):
+            os.unlink(audio_path)
         
-        print(f"Reel generated: {REEL_WIDTH}x{REEL_HEIGHT}, {DURATION}s, {FPS}fps, size: {len(video_data)} bytes")
+        print(f"✅ Professional reel generated: {REEL_WIDTH}x{REEL_HEIGHT}, {DURATION:.1f}s, size: {len(video_data)//1024}KB")
         
         return video_data
         
