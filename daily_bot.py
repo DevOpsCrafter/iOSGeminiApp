@@ -355,21 +355,66 @@ def download_ai_video(prompt, duration=8):
     print(f"🎥 Generating AI video: {prompt[:60]}...")
     
     providers = [
-        _try_huggingface_video,
-        _try_modelslab_video,
-        _try_pollinations_video,
+        _try_luma_video,         # Luma AI - best quality, free tier
+        _try_huggingface_video,  # HuggingFace Gradio spaces
+        _try_modelslab_video,    # ModelsLab free tier
     ]
     
     for provider in providers:
         try:
             result = provider(prompt, duration)
-            if result and len(result) > 10000:  # Valid video should be > 10KB
+            if result and _is_valid_video(result):
                 return result
         except Exception as e:
             print(f"  Provider failed: {e}")
             continue
     
     print("❌ All video providers failed")
+    return None
+
+def _try_luma_video(prompt, duration):
+    """Try Luma AI Dream Machine via Hugging Face Space."""
+    print("  Trying: Luma AI Dream Machine...")
+    
+    try:
+        from gradio_client import Client
+        
+        # Luma AI Dream Machine Hugging Face Spaces
+        spaces_to_try = [
+            "multimodalart/Luma-Dream-Machine",
+            "hysts/Luma-Dream-Machine",
+        ]
+        
+        for space in spaces_to_try:
+            try:
+                print(f"    Connecting to {space}...")
+                client = Client(space, verbose=False)
+                
+                # Luma spaces typically use text prompt input
+                result = client.predict(
+                    prompt,
+                    api_name="/generate"
+                )
+                
+                if result:
+                    # Result might be a file path or tuple
+                    video_path = result[0] if isinstance(result, (list, tuple)) else result
+                    
+                    if video_path and os.path.exists(str(video_path)):
+                        with open(video_path, 'rb') as f:
+                            video_data = f.read()
+                        
+                        if _is_valid_video(video_data):
+                            print(f"    ✅ Luma AI video: {len(video_data)//1024}KB")
+                            return video_data
+                    
+            except Exception as e:
+                print(f"    {space}: {str(e)[:60]}")
+                continue
+                
+    except ImportError:
+        print("    gradio_client not installed")
+    
     return None
 
 def _try_huggingface_video(prompt, duration):
@@ -448,38 +493,57 @@ def _try_modelslab_video(prompt, duration):
     
     return None
 
+def _is_valid_video(content):
+    """Check if content is actually a video file (not an image)."""
+    if not content or len(content) < 1000:
+        return False
+    
+    # Check video magic bytes
+    # MP4/MOV: starts with ftyp after 4 bytes
+    # WebM: starts with 0x1A45DFA3
+    # AVI: starts with RIFF...AVI
+    header = content[:12]
+    
+    # MP4/MOV check
+    if len(header) >= 8 and header[4:8] == b'ftyp':
+        return True
+    # WebM check  
+    if header[:4] == b'\x1a\x45\xdf\xa3':
+        return True
+    # AVI check
+    if header[:4] == b'RIFF' and len(header) >= 12 and header[8:12] == b'AVI ':
+        return True
+    # OGG video check
+    if header[:4] == b'OggS':
+        return True
+        
+    # Reject common image formats
+    # JPEG
+    if header[:2] == b'\xff\xd8':
+        print("    ❌ Rejected: received JPEG image instead of video")
+        return False
+    # PNG
+    if header[:4] == b'\x89PNG':
+        print("    ❌ Rejected: received PNG image instead of video")
+        return False
+    # GIF
+    if header[:3] == b'GIF':
+        print("    ❌ Rejected: received GIF instead of video")
+        return False
+    # WebP
+    if header[:4] == b'RIFF' and len(header) >= 12 and header[8:12] == b'WEBP':
+        print("    ❌ Rejected: received WebP image instead of video")
+        return False
+    
+    # Unknown format but large enough to potentially be video
+    return len(content) > 500000  # 500KB minimum for unknown format
+
 def _try_pollinations_video(prompt, duration):
     """Try Pollinations.ai for video generation."""
     print("  Trying: Pollinations.ai...")
     
-    try:
-        encoded_prompt = urllib.parse.quote(prompt)
-        seed = random.randint(1, 1000000)
-        
-        # Try different endpoint formats
-        endpoints = [
-            f"https://gen.pollinations.ai/video/{encoded_prompt}?model=veo&seed={seed}",
-            f"https://api.pollinations.ai/video/text-to-video?prompt={encoded_prompt}",
-            f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=video",
-        ]
-        
-        for url in endpoints:
-            try:
-                print(f"    Trying: {url[:60]}...")
-                response = requests.get(url, timeout=120)
-                
-                if response.status_code == 200 and len(response.content) > 10000:
-                    content_type = response.headers.get('content-type', '')
-                    if 'video' in content_type or len(response.content) > 50000:
-                        print(f"    ✅ Pollinations video: {len(response.content)//1024}KB")
-                        return response.content
-                        
-            except Exception as e:
-                continue
-                
-    except Exception as e:
-        print(f"    Pollinations error: {e}")
-    
+    # Skip Pollinations for now - currently returns images, not videos
+    print("    ⚠️ Pollinations video API currently unavailable")
     return None
 
 def generate_reel(image_bytes, caption_text, brand_name):
