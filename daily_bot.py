@@ -27,6 +27,11 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 YOUR_EMAIL = os.environ.get("YOUR_EMAIL")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")  # Gmail App Password
 
+# AI Video API Keys (optional - register for free tiers)
+FAL_KEY = os.environ.get("FAL_KEY")  # https://fal.ai
+LUMA_API_KEY = os.environ.get("LUMA_API_KEY")  # https://lumalabs.ai
+REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN")  # https://replicate.com
+
 def _extract_json_from_text(text: str) -> dict | None:
     """Attempt to extract and parse a JSON object from free-form text.
     This handles cases where the model wraps JSON in markdown code fences (```json ... ```)
@@ -348,17 +353,29 @@ async def generate_voiceover(text, output_path):
 
 def download_ai_video(prompt, duration=8):
     """
-    Download AI-generated video from multiple free providers.
-    Tries each provider in sequence until one succeeds.
-    Returns video bytes or None if all fail.
+    Download AI-generated video from multiple providers.
+    Prioritizes high-quality authenticated APIs (Fal.ai, Luma, Replicate).
+    Falls back to free unauthenticated options if API keys not configured.
     """
     print(f"🎥 Generating AI video: {prompt[:60]}...")
     
-    providers = [
-        _try_luma_video,         # Luma AI - best quality, free tier
-        _try_huggingface_video,  # HuggingFace Gradio spaces
-        _try_modelslab_video,    # ModelsLab free tier
-    ]
+    # Prioritize authenticated high-quality APIs
+    providers = []
+    
+    if FAL_KEY:
+        providers.append(_try_fal_video)
+    if LUMA_API_KEY:
+        providers.append(_try_luma_api_video)
+    if REPLICATE_API_TOKEN:
+        providers.append(_try_replicate_video)
+    
+    # Add free fallbacks
+    providers.extend([
+        _try_huggingface_video,
+        _try_modelslab_video,
+    ])
+    
+    print(f"  Available providers: {len(providers)}")
     
     for provider in providers:
         try:
@@ -372,9 +389,233 @@ def download_ai_video(prompt, duration=8):
     print("❌ All video providers failed")
     return None
 
+def _try_fal_video(prompt, duration):
+    """Try Fal.ai for high-quality video generation (Kling 2.5 model)."""
+    print("  Trying: Fal.ai (Kling 2.5)...")
+    
+    if not FAL_KEY:
+        print("    ⚠️ FAL_KEY not configured")
+        return None
+    
+    try:
+        import fal_client
+        
+        # Use Kling 2.5 Turbo for fast, high-quality generation
+        result = fal_client.subscribe(
+            "fal-ai/kling-video/v1.5/standard/text-to-video",
+            arguments={
+                "prompt": prompt,
+                "duration": "5",  # 5 or 10 seconds
+                "aspect_ratio": "9:16",  # Instagram Reels format
+            },
+            with_logs=False,
+        )
+        
+        if result and result.get("video") and result["video"].get("url"):
+            video_url = result["video"]["url"]
+            video_response = requests.get(video_url, timeout=120)
+            
+            if video_response.status_code == 200:
+                print(f"    ✅ Fal.ai Kling video: {len(video_response.content)//1024}KB")
+                return video_response.content
+                
+    except ImportError:
+        print("    ⚠️ fal-client not installed, using REST API...")
+        # Fallback to REST API
+        try:
+            headers = {"Authorization": f"Key {FAL_KEY}", "Content-Type": "application/json"}
+            payload = {
+                "prompt": prompt,
+                "duration": "5",
+                "aspect_ratio": "9:16",
+            }
+            
+            # Submit request
+            response = requests.post(
+                "https://queue.fal.run/fal-ai/kling-video/v1.5/standard/text-to-video",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                request_id = data.get("request_id")
+                
+                if request_id:
+                    # Poll for result
+                    for _ in range(60):  # Wait up to 5 minutes
+                        time.sleep(5)
+                        status_resp = requests.get(
+                            f"https://queue.fal.run/fal-ai/kling-video/v1.5/standard/text-to-video/requests/{request_id}/status",
+                            headers=headers,
+                            timeout=30
+                        )
+                        if status_resp.status_code == 200:
+                            status_data = status_resp.json()
+                            if status_data.get("status") == "COMPLETED":
+                                result_resp = requests.get(
+                                    f"https://queue.fal.run/fal-ai/kling-video/v1.5/standard/text-to-video/requests/{request_id}",
+                                    headers=headers,
+                                    timeout=30
+                                )
+                                if result_resp.status_code == 200:
+                                    result_data = result_resp.json()
+                                    if result_data.get("video", {}).get("url"):
+                                        video_url = result_data["video"]["url"]
+                                        video_resp = requests.get(video_url, timeout=120)
+                                        if video_resp.status_code == 200:
+                                            print(f"    ✅ Fal.ai video: {len(video_resp.content)//1024}KB")
+                                            return video_resp.content
+                                break
+                            elif status_data.get("status") == "FAILED":
+                                print(f"    ❌ Fal.ai failed: {status_data.get('error')}")
+                                break
+                                
+        except Exception as e:
+            print(f"    Fal.ai REST error: {e}")
+    except Exception as e:
+        print(f"    Fal.ai error: {e}")
+    
+    return None
+
+def _try_luma_api_video(prompt, duration):
+    """Try Luma AI official API for video generation."""
+    print("  Trying: Luma AI API...")
+    
+    if not LUMA_API_KEY:
+        print("    ⚠️ LUMA_API_KEY not configured")
+        return None
+    
+    try:
+        headers = {
+            "Authorization": f"Bearer {LUMA_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        # Create generation request
+        payload = {
+            "prompt": prompt,
+            "aspect_ratio": "9:16",
+            "loop": False,
+        }
+        
+        response = requests.post(
+            "https://api.lumalabs.ai/dream-machine/v1/generations",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code in [200, 201]:
+            data = response.json()
+            generation_id = data.get("id")
+            
+            if generation_id:
+                # Poll for completion
+                for _ in range(60):  # Wait up to 5 minutes
+                    time.sleep(5)
+                    status_resp = requests.get(
+                        f"https://api.lumalabs.ai/dream-machine/v1/generations/{generation_id}",
+                        headers=headers,
+                        timeout=30
+                    )
+                    
+                    if status_resp.status_code == 200:
+                        status_data = status_resp.json()
+                        state = status_data.get("state")
+                        
+                        if state == "completed":
+                            video_url = status_data.get("assets", {}).get("video")
+                            if video_url:
+                                video_resp = requests.get(video_url, timeout=120)
+                                if video_resp.status_code == 200:
+                                    print(f"    ✅ Luma AI video: {len(video_resp.content)//1024}KB")
+                                    return video_resp.content
+                            break
+                        elif state == "failed":
+                            print(f"    ❌ Luma failed: {status_data.get('failure_reason')}")
+                            break
+        else:
+            print(f"    Luma API returned: {response.status_code}")
+            
+    except Exception as e:
+        print(f"    Luma API error: {e}")
+    
+    return None
+
+def _try_replicate_video(prompt, duration):
+    """Try Replicate API for video generation (CogVideoX)."""
+    print("  Trying: Replicate (CogVideoX)...")
+    
+    if not REPLICATE_API_TOKEN:
+        print("    ⚠️ REPLICATE_API_TOKEN not configured")
+        return None
+    
+    try:
+        headers = {
+            "Authorization": f"Token {REPLICATE_API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        # Use CogVideoX-5B for text-to-video
+        payload = {
+            "version": "2b89ece6d64f7deccae55c54a3a2ca8d2bea04e3c0d3b5c6f7a1e8e5e5c5e5e5",
+            "input": {
+                "prompt": prompt,
+                "num_frames": 49,  # ~6 seconds at 8fps
+                "fps": 8,
+            }
+        }
+        
+        response = requests.post(
+            "https://api.replicate.com/v1/predictions",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 201:
+            data = response.json()
+            prediction_id = data.get("id")
+            
+            if prediction_id:
+                # Poll for completion
+                for _ in range(60):
+                    time.sleep(5)
+                    status_resp = requests.get(
+                        f"https://api.replicate.com/v1/predictions/{prediction_id}",
+                        headers=headers,
+                        timeout=30
+                    )
+                    
+                    if status_resp.status_code == 200:
+                        status_data = status_resp.json()
+                        status = status_data.get("status")
+                        
+                        if status == "succeeded":
+                            output = status_data.get("output")
+                            video_url = output[0] if isinstance(output, list) else output
+                            if video_url:
+                                video_resp = requests.get(video_url, timeout=120)
+                                if video_resp.status_code == 200:
+                                    print(f"    ✅ Replicate video: {len(video_resp.content)//1024}KB")
+                                    return video_resp.content
+                            break
+                        elif status == "failed":
+                            print(f"    ❌ Replicate failed: {status_data.get('error')}")
+                            break
+        else:
+            print(f"    Replicate returned: {response.status_code}")
+            
+    except Exception as e:
+        print(f"    Replicate error: {e}")
+    
+    return None
+
 def _try_luma_video(prompt, duration):
-    """Try Luma AI Dream Machine via Hugging Face Space."""
-    print("  Trying: Luma AI Dream Machine...")
+    """Try Luma AI Dream Machine via Hugging Face Space (fallback)."""
+    print("  Trying: Luma AI HuggingFace Space...")
     
     try:
         from gradio_client import Client

@@ -29,4 +29,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YOUR_EMAIL: ${{ secrets.YOUR_EMAIL }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          # AI Video API Keys (optional - register for free tiers)
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          LUMA_API_KEY: ${{ secrets.LUMA_API_KEY }}
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
         run: python daily_bot.py
