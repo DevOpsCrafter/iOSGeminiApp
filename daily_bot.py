@@ -387,9 +387,7 @@ def generate_reel(image_bytes, caption_text, brand_name):
             codec='libx264',
             audio=False,
             fps=FPS,
-            preset='ultrafast',
-            verbose=False,
-            logger=None
+            preset='ultrafast'
         )
         
         # Read the video file
