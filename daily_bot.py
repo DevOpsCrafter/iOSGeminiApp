@@ -258,6 +258,51 @@ def generate_astro_content():
             defaults = ['#AstroboliAI', '#astrology', '#numerology', '#horoscope', '#zodiac']
             return short_caption[:800], f"{short_caption}\n\n{' '.join(defaults)}", defaults
 
+def generate_video_prompt():
+    """Generate a unique video prompt using Gemini AI for Instagram Reels format."""
+    print("🎬 Generating unique video prompt...")
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        prompt = """
+        Generate a creative, mystical, cosmic-themed video prompt for an Instagram Reel.
+        
+        REQUIREMENTS:
+        - Theme: Astrology, zodiac, cosmic energy, mystical, ethereal
+        - Style: Cinematic, dreamy, magical, 4K quality
+        - Visual elements: galaxies, stars, nebulas, zodiac symbols, cosmic particles
+        - Colors: Deep purples, gold, aurora colors, cosmic blues
+        - Mood: Peaceful, inspiring, spiritual, transformative
+        
+        STRICT FORMAT REQUIREMENTS (MUST INCLUDE):
+        - Instagram Reels portrait format: 9:16 aspect ratio
+        - Resolution: 1080x1920 pixels
+        - Duration: 10-15 seconds
+        - Vertical video orientation
+        
+        Return ONLY the video prompt text (1-2 sentences describing the scene), followed by the format requirements.
+        Do not include any explanation or markdown formatting.
+        
+        Example output:
+        "A mystical cosmic queen emerges from swirling nebula clouds, her flowing hair made of shimmering stardust, zodiac constellations dancing around her. FORMAT: Instagram Reels vertical 9:16 aspect ratio, 10-15 seconds, 1080x1920 resolution."
+        """
+        
+        response = model.generate_content(prompt)
+        video_prompt = response.text.strip()
+        
+        # Ensure format requirements are included
+        if "9:16" not in video_prompt or "1080x1920" not in video_prompt:
+            video_prompt = f"{video_prompt} FORMAT: Instagram Reels vertical 9:16 aspect ratio, 10-15 seconds duration, 1080x1920 resolution."
+        
+        print(f"📝 Video prompt generated: {video_prompt[:80]}...")
+        return video_prompt
+        
+    except Exception as e:
+        print(f"⚠️ Video prompt generation failed: {e}")
+        # Fallback to a static prompt
+        return "Mystical cosmic astrology scene with swirling galaxies, glowing zodiac constellations, ethereal purple and gold aurora lights, magical stardust particles floating through space, cinematic dreamy atmosphere. FORMAT: Instagram Reels vertical 9:16 aspect ratio, 10-15 seconds duration, 1080x1920 resolution."
+
 
 def get_image_url(prompt):
     """Generates an image URL from Pollinations.ai."""
@@ -1263,8 +1308,8 @@ def main():
         brand_variations = ["Astro Boli", "AstroBoli AI", "Astro AI", "AstroBoli", "Astro Boli AI"]
         brand_name = random.choice(brand_variations)
         
-        # Video prompt for manual creation if automation fails
-        video_prompt = "Mystical cosmic astrology scene, swirling galaxies, zodiac constellations, ethereal purple and gold colors, glowing stars, nebula clouds, magical celestial energy, cinematic, 4K quality, slow motion particles, dreamy atmosphere. FORMAT: Instagram Reels vertical 9:16 aspect ratio, 10-15 seconds duration, 1080x1920 resolution."
+        # Video prompt for manual creation if automation fails (generated dynamically)
+        video_prompt = generate_video_prompt()
         
         reel_data = generate_reel(image_data, caption, brand_name)
         
